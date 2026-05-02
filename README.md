@@ -59,11 +59,42 @@ curl -X POST http://127.0.0.1:8787/ingest \
 
 ```bash
 npm run cli -- ingest --text "Idea: pebble could auto-summarize threads"
-npm run cli -- triage --limit 10
+npm run cli -- triage --limit 10 --file    # classify, then file into typed home
+npm run cli -- file                          # file all already-triaged items
 npm run cli -- index
 npm run cli -- search "renew"
 npm run cli -- agent --dry-run
 ```
+
+## Subscription mode vs API key
+
+Pebble is **subscription-first**: by default it drives your already-logged-in
+[Claude Code](https://docs.anthropic.com/claude/docs/claude-code) or
+[Codex](https://github.com/openai/codex) CLI as a subprocess and uses their
+auth — no API key in `.env`, no per-token billing. API-key providers
+(`anthropic`, `openai`) are reserved slots and currently throw.
+
+```bash
+# .env
+PEBBLE_TRIAGE_PROVIDER=claude-code        # or "codex" or "mock"
+PEBBLE_CLAUDE_CODE_BIN=/usr/local/bin/claude   # optional, defaults to "claude" on PATH
+PEBBLE_CODEX_BIN=/usr/local/bin/codex          # optional, defaults to "codex"
+```
+
+How it works under the hood (`src/triage/cli-provider.ts`):
+
+1. Pebble renders a stable triage prompt asking for one JSON object that
+   matches `TriageResultSchema`.
+2. The prompt is fed to the CLI **via stdin** (no shell quoting, no
+   arg-length limits).
+3. stdout is parsed (handles `claude --output-format json` envelopes and
+   noisy outputs with fenced code blocks).
+4. The JSON is re-validated against the Zod schema before anything touches
+   the vault — the model never gets to define the shape of your data.
+
+If neither subscription is set up, set `PEBBLE_TRIAGE_PROVIDER=mock` and
+Pebble will use a built-in heuristic classifier — useful for development
+and offline use.
 
 ## Vault layout (Obsidian-compatible)
 

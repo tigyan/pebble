@@ -14,12 +14,16 @@
 
 ## Sprint 1 — make it daily-useful
 
-- [ ] Real triage providers behind `TriageProvider`
+- [x] Subscription-mode triage providers (CLI subprocess, login-based auth)
+  - [x] `claude-code` CLI driver
+  - [x] `codex` CLI driver
+  - [x] Schema-validated output extraction (handles JSON envelopes + fenced code)
+- [x] Filing executor: take a `TriageResult` and write a typed-home note in the
+      suggested folder, append a `[[wikilink]]` from the source thread,
+      mark ingestion `filed`.
+- [ ] API-key triage providers (kept as reserved slots; subscription mode is primary)
   - [ ] Anthropic (`claude-opus-4-7`, `claude-sonnet-4-6`, `claude-haiku-4-5`)
   - [ ] OpenAI Responses API
-  - [ ] `claude-code` and `codex` CLI sub-process drivers
-- [ ] Filing executor: take a `TriageResult` and actually move/file via `propose_patch`,
-      stamping the daily inbox entry with a `[[wikilink]]` to the new home.
 - [ ] Duplicate detection beyond exact-hash: shingled near-dup + LLM tiebreaker.
 - [ ] Attachment ingest: copy/move into `_System/attachments/`, reference by relative path.
 

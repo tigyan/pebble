@@ -7,6 +7,7 @@ import { openDB } from "../db/client.js";
 import { indexVault } from "../indexer/index.js";
 import { ingest } from "../ingest/pipeline.js";
 import { runTriage } from "../triage/runner.js";
+import { fileAllTriaged } from "../filing/executor.js";
 import { manualAdapter } from "../adapters/manual.js";
 import { IngestPayloadSchema } from "../types/index.js";
 import { makeAgentTools } from "../agent/tools.js";
@@ -73,6 +74,7 @@ program
   .command("triage")
   .description("Classify recent raw ingestions into structured triage results")
   .option("--limit <n>", "Max items to triage", "10")
+  .option("--file", "Also file each triaged item into its suggested folder")
   .action(async (opts) => {
     const cfg = loadConfig();
     const db = openDB(cfg.dbPath);
@@ -86,6 +88,31 @@ program
       for (const r of out) {
         log(`  ${r.id} → ${r.triage.type} (${r.triage.urgency}) → ${r.triage.suggested_folder}`);
       }
+      if (opts.file) {
+        const filed = await fileAllTriaged({ vaultPath: cfg.vaultPath, db, limit: out.length });
+        log(`filed ${filed.length} items`);
+        for (const f of filed) log(`  ${f.id} → ${f.filed_path}${f.created ? "" : " (existing)"}`);
+      }
+    } finally {
+      db.close();
+    }
+  });
+
+program
+  .command("file")
+  .description("File every already-triaged ingestion into its suggested folder")
+  .option("--limit <n>", "Max items to file", "50")
+  .action(async (opts) => {
+    const cfg = loadConfig();
+    const db = openDB(cfg.dbPath);
+    try {
+      const filed = await fileAllTriaged({
+        vaultPath: cfg.vaultPath,
+        db,
+        limit: Number(opts.limit) || 50,
+      });
+      log(`filed ${filed.length} items`);
+      for (const f of filed) log(`  ${f.id} → ${f.filed_path}${f.created ? "" : " (existing)"}`);
     } finally {
       db.close();
     }

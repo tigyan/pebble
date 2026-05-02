@@ -6,6 +6,7 @@ import { buildServer } from "../../src/server/server.js";
 import { loadConfig } from "../../src/config.js";
 import { openDB, type PebbleDB } from "../../src/db/client.js";
 import { runTriage } from "../../src/triage/runner.js";
+import { fileAllTriaged } from "../../src/filing/executor.js";
 import { makeTempVault, rmRf } from "../helpers.js";
 import { fileURLToPath } from "node:url";
 
@@ -94,5 +95,20 @@ describe("integration: webhook → inbox → triage → suggested filing", () =>
     expect(after?.status).toBe("triaged");
     const persistedTriage = db.getTriage(json.id);
     expect(persistedTriage?.is_task).toBe(true);
+
+    // Filing executor: triaged → filed, with backlink to the thread.
+    const filed = await fileAllTriaged({ vaultPath: vault, db });
+    expect(filed).toHaveLength(1);
+    expect(filed[0]!.id).toBe(json.id);
+    expect(filed[0]!.filed_path.startsWith(path.join(vault, "Tasks"))).toBe(true);
+
+    const filedNote = await fs.readFile(filed[0]!.filed_path, "utf8");
+    expect(filedNote).toContain("renew the domain");
+    expect(filedNote).toMatch(/^---/);
+
+    const threadAfter = await fs.readFile(json.wrote.thread, "utf8");
+    expect(threadAfter).toMatch(/Filed as \[\[Tasks\//);
+
+    expect(db.getIngestion(json.id)?.status).toBe("filed");
   });
 });

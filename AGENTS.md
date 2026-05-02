@@ -61,7 +61,10 @@ See `README.md`, `ARCHITECTURE.md`, `ROADMAP.md` for the user-facing picture.
 | SQLite client + schema         | `src/db/{client,schema}.ts`                   |
 | Vault indexer                  | `src/indexer/index.ts`                        |
 | Triage classifier (interface)  | `src/triage/classifier.ts`                    |
+| Triage prompt + JSON extraction| `src/triage/prompt.ts`                        |
+| CLI subprocess provider        | `src/triage/cli-provider.ts`                  |
 | Triage runner (batch)          | `src/triage/runner.ts`                        |
+| Filing executor (typed-home)   | `src/filing/executor.ts`                      |
 | Agent tools                    | `src/agent/tools.ts`                          |
 | CLI                            | `src/cli/index.ts`                            |
 | Tests                          | `tests/{unit,integration}/*.test.ts`          |

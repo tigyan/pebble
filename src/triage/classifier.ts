@@ -4,6 +4,7 @@ import {
   type TriageResult,
   TriageResultSchema,
 } from "../types/index.js";
+import { makeCliProvider } from "./cli-provider.js";
 
 export interface TriageProvider {
   readonly name: string;
@@ -36,21 +37,59 @@ export const mockTriageProvider: TriageProvider = {
 };
 
 /**
- * Provider registry. Real LLM-backed providers (Anthropic, OpenAI, Claude Code,
- * Codex) plug in here. They MUST return data that parses against TriageResultSchema.
+ * Provider registry. Subscription-mode CLIs (claude-code, codex) are
+ * first-class. API-key providers (anthropic, openai) remain reserved slots
+ * and currently throw.
  */
-export function getProvider(name: string): TriageProvider {
+export function getProvider(
+  name: string,
+  env: NodeJS.ProcessEnv = process.env,
+): TriageProvider {
   switch (name) {
     case "mock":
       return mockTriageProvider;
+
+    case "claude-code": {
+      const bin = env.PEBBLE_CLAUDE_CODE_BIN || "claude";
+      // Headless Claude Code: -p emits a single completion; --output-format
+      // json gives us a stable envelope with .result containing the text.
+      return makeCliProvider({
+        name: "claude-code",
+        bin,
+        args: ["-p", "--output-format", "json"],
+        extractText: (out) => {
+          try {
+            const env = JSON.parse(out);
+            if (env && typeof env === "object" && "result" in env && typeof env.result === "string") {
+              return env.result;
+            }
+          } catch {
+            /* fallthrough — treat raw stdout as text */
+          }
+          return out;
+        },
+      });
+    }
+
+    case "codex": {
+      const bin = env.PEBBLE_CODEX_BIN || "codex";
+      // Codex CLI exec mode: stdin → assistant text on stdout.
+      return makeCliProvider({
+        name: "codex",
+        bin,
+        args: ["exec", "--quiet", "-"],
+      });
+    }
+
     case "anthropic":
     case "openai":
-    case "claude-code":
-    case "codex":
-      // TODO: real implementations. Until wired, fail loudly so users notice.
+      // API-key providers are reserved slots. Subscription mode is the
+      // primary supported path for MVP — see ROADMAP.md.
       throw new Error(
-        `triage provider "${name}" not yet implemented — set PEBBLE_TRIAGE_PROVIDER=mock for now`,
+        `triage provider "${name}" requires an API key and is not yet wired. ` +
+          `Use "claude-code" or "codex" (subscription) or "mock" instead.`,
       );
+
     default:
       throw new Error(`unknown triage provider: ${name}`);
   }
