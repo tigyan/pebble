@@ -111,4 +111,46 @@ describe("integration: webhook → inbox → triage → suggested filing", () =>
 
     expect(db.getIngestion(json.id)?.status).toBe("filed");
   });
+
+  it("flags a near-duplicate via Jaccard shingles even when the hash differs", async () => {
+    const auth = { "x-pebble-token": SECRET };
+
+    // First ingestion lays down the original.
+    const first = await app.inject({
+      method: "POST",
+      url: "/ingest",
+      headers: auth,
+      payload: {
+        source: "manual",
+        sender: "self",
+        thread_id: "t",
+        text: "remember to renew the domain name before it expires next week",
+      },
+    });
+    expect(first.statusCode).toBe(202);
+    const firstId = (first.json() as { id: string }).id;
+
+    // Second ingestion: same idea, slightly reworded → different SHA-256 but
+    // high shingle overlap.
+    const second = await app.inject({
+      method: "POST",
+      url: "/ingest",
+      headers: auth,
+      payload: {
+        source: "manual",
+        sender: "self",
+        thread_id: "t",
+        text: "renew the domain name before it expires next week!!",
+      },
+    });
+    expect(second.statusCode).toBe(202);
+    const body = second.json() as {
+      duplicate_of: string | null;
+      near_duplicate_of: { id: string; score: number } | null;
+    };
+    expect(body.duplicate_of).toBeNull(); // hashes differ
+    expect(body.near_duplicate_of).not.toBeNull();
+    expect(body.near_duplicate_of!.id).toBe(firstId);
+    expect(body.near_duplicate_of!.score).toBeGreaterThanOrEqual(0.6);
+  });
 });

@@ -71,7 +71,10 @@ See `README.md`, `ARCHITECTURE.md`, `ROADMAP.md` for the user-facing picture.
 | Triage classifier (interface)  | `src/triage/classifier.ts`                    |
 | Triage prompt + JSON extraction| `src/triage/prompt.ts`                        |
 | CLI subprocess provider        | `src/triage/cli-provider.ts`                  |
+| API-key providers (Anthropic/OpenAI) | `src/triage/api-provider.ts`            |
 | Triage runner (batch)          | `src/triage/runner.ts`                        |
+| Near-duplicate detector        | `src/ingest/near-dup.ts`                      |
+| Attachment materializer        | `src/ingest/attachments.ts`                   |
 | Filing executor (typed-home)   | `src/filing/executor.ts`                      |
 | Settings overlay (file → env)  | `src/settings/store.ts`                       |
 | Agent tools                    | `src/agent/tools.ts`                          |

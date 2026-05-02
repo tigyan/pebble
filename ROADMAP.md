@@ -21,11 +21,18 @@
 - [x] Filing executor: take a `TriageResult` and write a typed-home note in the
       suggested folder, append a `[[wikilink]]` from the source thread,
       mark ingestion `filed`.
-- [ ] API-key triage providers (kept as reserved slots; subscription mode is primary)
-  - [ ] Anthropic (`claude-opus-4-7`, `claude-sonnet-4-6`, `claude-haiku-4-5`)
-  - [ ] OpenAI Responses API
-- [ ] Duplicate detection beyond exact-hash: shingled near-dup + LLM tiebreaker.
-- [ ] Attachment ingest: copy/move into `_System/attachments/`, reference by relative path.
+- [x] API-key triage providers (kept as reserved fallback; subscription mode is primary)
+  - [x] Anthropic Messages API (`claude-haiku-4-5` default; `claude-sonnet-4-6`,
+        `claude-opus-4-7` selectable via `PEBBLE_ANTHROPIC_MODEL`)
+  - [x] OpenAI Responses API (`gpt-5-mini` default, override via
+        `PEBBLE_OPENAI_MODEL`)
+- [x] Duplicate detection beyond exact-hash: shingled (k=3) Jaccard near-dup
+      across the most recent 200 ingestions. (LLM tiebreaker hook deferred to
+      Sprint 3 — the score is already surfaced for callers.)
+- [x] Attachment ingest: `materializeAttachments` copies remote / data: /
+      out-of-vault paths into `_System/attachments/`, rewrites the URI to
+      a vault-relative path. Privacy invariant: attachments are still never
+      auto-uploaded to model providers.
 
 ## Sprint 2 — UI
 

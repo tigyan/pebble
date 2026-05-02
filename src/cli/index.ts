@@ -56,7 +56,7 @@ program
           timestamp: new Date().toISOString(),
         }),
       );
-      const { record, duplicate } = await ingest(payload, {
+      const { record, duplicate, near_duplicate } = await ingest(payload, {
         vaultPath: cfg.vaultPath,
         appendOnly: cfg.appendOnly,
         db,
@@ -65,7 +65,9 @@ program
       log(`  inbox:  ${record.inbox_path}`);
       log(`  thread: ${record.thread_path}`);
       log(`  person: ${record.person_path}`);
-      if (duplicate) log(`  ⚠ likely duplicate of ${duplicate.id}`);
+      if (duplicate) log(`  ⚠ exact duplicate of ${duplicate.id}`);
+      else if (near_duplicate)
+        log(`  ⚠ near-duplicate of ${near_duplicate.id} (jaccard ${near_duplicate.score.toFixed(2)})`);
     } finally {
       db.close();
     }

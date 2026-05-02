@@ -4,6 +4,7 @@ import {
   type TriageResult,
   TriageResultSchema,
 } from "../types/index.js";
+import { makeAnthropicProvider, makeOpenAIProvider } from "./api-provider.js";
 import { makeCliProvider } from "./cli-provider.js";
 
 export interface TriageProvider {
@@ -81,14 +82,33 @@ export function getProvider(
       });
     }
 
-    case "anthropic":
-    case "openai":
-      // API-key providers are reserved slots. Subscription mode is the
-      // primary supported path for MVP — see ROADMAP.md.
-      throw new Error(
-        `triage provider "${name}" requires an API key and is not yet wired. ` +
-          `Use "claude-code" or "codex" (subscription) or "mock" instead.`,
-      );
+    case "anthropic": {
+      const apiKey = env.PEBBLE_ANTHROPIC_API_KEY ?? "";
+      if (!apiKey) {
+        throw new Error(
+          "triage provider \"anthropic\" requires PEBBLE_ANTHROPIC_API_KEY. " +
+            "Subscription mode (claude-code) is the recommended alternative.",
+        );
+      }
+      const opts: Parameters<typeof makeAnthropicProvider>[0] = { apiKey };
+      if (env.PEBBLE_ANTHROPIC_MODEL) opts.model = env.PEBBLE_ANTHROPIC_MODEL;
+      if (env.PEBBLE_ANTHROPIC_BASE_URL) opts.baseUrl = env.PEBBLE_ANTHROPIC_BASE_URL;
+      return makeAnthropicProvider(opts);
+    }
+
+    case "openai": {
+      const apiKey = env.PEBBLE_OPENAI_API_KEY ?? "";
+      if (!apiKey) {
+        throw new Error(
+          "triage provider \"openai\" requires PEBBLE_OPENAI_API_KEY. " +
+            "Subscription mode (codex) is the recommended alternative.",
+        );
+      }
+      const opts: Parameters<typeof makeOpenAIProvider>[0] = { apiKey };
+      if (env.PEBBLE_OPENAI_MODEL) opts.model = env.PEBBLE_OPENAI_MODEL;
+      if (env.PEBBLE_OPENAI_BASE_URL) opts.baseUrl = env.PEBBLE_OPENAI_BASE_URL;
+      return makeOpenAIProvider(opts);
+    }
 
     default:
       throw new Error(`unknown triage provider: ${name}`);

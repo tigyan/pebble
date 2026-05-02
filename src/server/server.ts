@@ -60,7 +60,7 @@ export async function buildServer(deps: ServerDeps): Promise<FastifyInstance> {
         req.headers as Record<string, string | string[] | undefined>,
         req.body,
       );
-      const { record, duplicate } = await ingest(payload, {
+      const { record, duplicate, near_duplicate } = await ingest(payload, {
         vaultPath: deps.config.vaultPath,
         appendOnly: deps.config.appendOnly,
         db: deps.db,
@@ -70,6 +70,7 @@ export async function buildServer(deps: ServerDeps): Promise<FastifyInstance> {
         adapter,
         id: record.id,
         duplicate_of: duplicate?.id ?? null,
+        near_duplicate_of: near_duplicate,
         wrote: {
           inbox: record.inbox_path,
           thread: record.thread_path,

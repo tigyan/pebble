@@ -119,8 +119,7 @@ blocked once an item is rejected; rejecting an already-filed item is a 409.
 Pebble is **subscription-first**: by default it drives your already-logged-in
 [Claude Code](https://docs.anthropic.com/claude/docs/claude-code) or
 [Codex](https://github.com/openai/codex) CLI as a subprocess and uses their
-auth — no API key in `.env`, no per-token billing. API-key providers
-(`anthropic`, `openai`) are reserved slots and currently throw.
+auth — no API key in `.env`, no per-token billing.
 
 ```bash
 # .env
@@ -140,9 +139,52 @@ How it works under the hood (`src/triage/cli-provider.ts`):
 4. The JSON is re-validated against the Zod schema before anything touches
    the vault — the model never gets to define the shape of your data.
 
-If neither subscription is set up, set `PEBBLE_TRIAGE_PROVIDER=mock` and
-Pebble will use a built-in heuristic classifier — useful for development
+API-key mode is also available as a fallback for headless deployments where
+no subscription CLI is logged in:
+
+```bash
+# .env
+PEBBLE_TRIAGE_PROVIDER=anthropic
+PEBBLE_ANTHROPIC_API_KEY=sk-ant-...
+PEBBLE_ANTHROPIC_MODEL=claude-haiku-4-5   # or claude-sonnet-4-6, claude-opus-4-7
+
+# or
+PEBBLE_TRIAGE_PROVIDER=openai
+PEBBLE_OPENAI_API_KEY=sk-...
+PEBBLE_OPENAI_MODEL=gpt-5-mini
+```
+
+Both API providers re-validate the model output through `TriageResultSchema`
+before anything touches the vault, just like the CLI subprocess providers.
+
+If neither subscription nor API key is set up, set `PEBBLE_TRIAGE_PROVIDER=mock`
+and Pebble will use a built-in heuristic classifier — useful for development
 and offline use.
+
+## Duplicate detection
+
+Inbound messages get two layers of dedup, both surfaced on the `/ingest`
+response so the dashboard / CLI can warn:
+
+- `duplicate_of` — exact SHA-256 hash match against the original text.
+- `near_duplicate_of` — `{ id, score }` from word-shingle (k=3) Jaccard
+  similarity scanned against the most recent 200 ingestions. Threshold
+  defaults to 0.6.
+
+Pure heuristic — no model call required. The score is exposed so future
+agents can use an LLM tiebreaker on the borderline band.
+
+## Attachments
+
+Whenever a payload arrives with `attachments[]` whose URIs are remote
+(`http(s)://`), inline (`data:`), or absolute paths outside the vault,
+Pebble copies them into `<vault>/_System/attachments/<id>-<filename>` and
+rewrites the URI to a vault-relative path **before** anything is written
+to Markdown. Filenames are sanitized; size is capped at 32 MiB per file.
+
+Already-vault-internal paths and URI schemes Pebble doesn't recognize are
+left untouched. **Attachments are never auto-uploaded to model providers** —
+they are referenced by path only. This is a hard invariant.
 
 ## Vault layout (Obsidian-compatible)
 
