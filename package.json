@@ -9,9 +9,9 @@
   },
   "scripts": {
     "build": "tsc -p .",
-    "dev": "tsx watch src/server/index.ts",
-    "start": "node dist/server/index.js",
-    "cli": "tsx src/cli/index.ts",
+    "dev": "node --env-file-if-exists=.env --import tsx --watch src/server/index.ts",
+    "start": "node --env-file-if-exists=.env dist/server/index.js",
+    "cli": "node --env-file-if-exists=.env --import tsx src/cli/index.ts",
     "test": "vitest run",
     "test:watch": "vitest",
     "typecheck": "tsc -p . --noEmit"
@@ -33,6 +33,6 @@
     "vitest": "^2.1.1"
   },
   "engines": {
-    "node": ">=20"
+    "node": ">=22"
   }
 }

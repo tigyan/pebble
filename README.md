@@ -299,6 +299,10 @@ See [`.env.example`](./.env.example) for the full list. Required:
 - `PEBBLE_VAULT_PATH` — absolute path to your Obsidian vault
 - `PEBBLE_INGEST_SECRET` — webhook bearer token (≥ 8 chars enforced)
 
+`npm run cli` and `npm run dev` auto-load `.env` from the repo root via
+Node's native `--env-file-if-exists` flag (Node ≥ 22). For one-off invocations
+you can also do `node --env-file=.env --import tsx src/cli/index.ts <cmd>`.
+
 ## Architecture
 
 See [`ARCHITECTURE.md`](./ARCHITECTURE.md) for the full diagram and component
