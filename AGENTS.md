@@ -45,6 +45,13 @@ See `README.md`, `ARCHITECTURE.md`, `ROADMAP.md` for the user-facing picture.
 8. **Path safety.** Agent-supplied paths are resolved relative to
    `vaultPath` and rejected if they escape it. See `safePath()` in
    `src/agent/tools.ts`.
+9. **Settings layer.** User-editable settings live in
+   `<vault>/_System/settings.json` and overlay `.env` (file wins). Only fields
+   in `EditableSettingsSchema` are settable from the UI — never accept the
+   ingest secret or vault path through `/api/settings`.
+10. **`rejected` is terminal-ish.** Once an ingestion is `rejected`, filing it
+    is a 409. Rejecting a `filed` ingestion is also a 409. Don't quietly
+    flip a rejected item back to `raw` without an explicit user action.
 
 ## Where things live
 
@@ -66,6 +73,7 @@ See `README.md`, `ARCHITECTURE.md`, `ROADMAP.md` for the user-facing picture.
 | CLI subprocess provider        | `src/triage/cli-provider.ts`                  |
 | Triage runner (batch)          | `src/triage/runner.ts`                        |
 | Filing executor (typed-home)   | `src/filing/executor.ts`                      |
+| Settings overlay (file → env)  | `src/settings/store.ts`                       |
 | Agent tools                    | `src/agent/tools.ts`                          |
 | CLI                            | `src/cli/index.ts`                            |
 | Tests                          | `tests/{unit,integration}/*.test.ts`          |

@@ -5,17 +5,28 @@ import type { PebbleConfig } from "../config.js";
 import type { PebbleDB } from "../db/client.js";
 import { fileOne } from "../filing/executor.js";
 import { ingest } from "../ingest/pipeline.js";
+import {
+  EditableSettingsSchema,
+  makeSettingsStore,
+  type SettingsStore,
+} from "../settings/store.js";
 import { getProvider } from "../triage/classifier.js";
 import { dashboardHtml } from "./dashboard.js";
 
 export interface ServerDeps {
   config: PebbleConfig;
   db: PebbleDB;
+  settings?: SettingsStore;
 }
 
 const PUBLIC_PATHS = new Set(["/health", "/dashboard"]);
 
 export async function buildServer(deps: ServerDeps): Promise<FastifyInstance> {
+  const settings = deps.settings ?? (await makeSettingsStore(deps.config.vaultPath));
+
+  const effectiveTriageProvider = (): string =>
+    settings.get().triage_provider ?? deps.config.triageProvider;
+
   const app = Fastify({
     logger: { level: process.env.LOG_LEVEL ?? "info" },
     bodyLimit: 5 * 1024 * 1024,
@@ -79,11 +90,23 @@ export async function buildServer(deps: ServerDeps): Promise<FastifyInstance> {
   app.get("/api/config", async () => ({
     // Sanitized; never echoes the ingest secret or any API key.
     vault_path: deps.config.vaultPath,
-    triage_provider: deps.config.triageProvider,
+    triage_provider: effectiveTriageProvider(),
+    triage_provider_default: deps.config.triageProvider,
     host: deps.config.host,
     port: deps.config.port,
     append_only: deps.config.appendOnly,
   }));
+
+  app.get("/api/settings", async () => ({ settings: settings.get() }));
+
+  app.put("/api/settings", async (req, reply) => {
+    const parsed = EditableSettingsSchema.safeParse(req.body ?? {});
+    if (!parsed.success) {
+      return reply.code(400).send({ ok: false, issues: parsed.error.issues });
+    }
+    const updated = await settings.set(parsed.data);
+    return { ok: true, settings: updated };
+  });
 
   app.get("/api/recent", async (req) => {
     const q = (req.query as { limit?: string; status?: string }) ?? {};
@@ -107,7 +130,7 @@ export async function buildServer(deps: ServerDeps): Promise<FastifyInstance> {
     const rec = deps.db.getIngestion(id);
     if (!rec) return reply.code(404).send({ error: "not found" });
     try {
-      const provider = getProvider(deps.config.triageProvider);
+      const provider = getProvider(effectiveTriageProvider());
       const triage = await provider.classify(rec);
       deps.db.setTriage(id, triage, "triaged");
       return { ok: true, id, triage };
@@ -117,12 +140,30 @@ export async function buildServer(deps: ServerDeps): Promise<FastifyInstance> {
     }
   });
 
+  app.post("/api/ingestions/:id/reject", async (req, reply) => {
+    const id = (req.params as { id: string }).id;
+    const rec = deps.db.getIngestion(id);
+    if (!rec) return reply.code(404).send({ error: "not found" });
+    if (rec.status === "filed") {
+      return reply
+        .code(409)
+        .send({ ok: false, error: "already filed — cannot reject" });
+    }
+    deps.db.setStatus(id, "rejected");
+    return { ok: true, id, status: "rejected" };
+  });
+
   const FileBody = z.object({ folder: z.string().min(1).optional() });
 
   app.post("/api/ingestions/:id/file", async (req, reply) => {
     const id = (req.params as { id: string }).id;
     const rec = deps.db.getIngestion(id);
     if (!rec) return reply.code(404).send({ error: "not found" });
+    if (rec.status === "rejected") {
+      return reply
+        .code(409)
+        .send({ ok: false, error: "ingestion was rejected — cannot file" });
+    }
     const triage = deps.db.getTriage(id);
     if (!triage) {
       return reply
@@ -135,9 +176,10 @@ export async function buildServer(deps: ServerDeps): Promise<FastifyInstance> {
     } catch (err) {
       return reply.code(400).send({ ok: false, error: (err as Error).message });
     }
-    const effective = body.folder
-      ? { ...triage, suggested_folder: body.folder }
-      : triage;
+    const defaults = settings.get().default_folders ?? {};
+    const folder =
+      body.folder ?? defaults[triage.type] ?? triage.suggested_folder;
+    const effective = { ...triage, suggested_folder: folder };
     const result = await fileOne({
       vaultPath: deps.config.vaultPath,
       db: deps.db,

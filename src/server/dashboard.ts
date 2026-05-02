@@ -67,6 +67,7 @@ const HTML = String.raw`<!doctype html>
     .pill.triaged { color: var(--warn); border-color: var(--warn); }
     .pill.filed { color: var(--accent-2); border-color: var(--accent-2); }
     .pill.linked { color: var(--accent); border-color: var(--accent); }
+    .pill.rejected { color: var(--danger); border-color: var(--danger); }
 
     details { background: var(--panel-2); border-radius: 8px; padding: 8px 12px; margin: 6px 0; }
     details > summary { cursor: pointer; outline: none; }
@@ -106,8 +107,11 @@ const h = (tag, attrs = {}, ...children) => {
 };
 
 const TOKEN_KEY = "pebble_token";
+const NOTE_TYPES = ["idea","task","meeting_note","contact","project_note","reference","question","journal","finance","travel","media","other"];
+const TRIAGE_PROVIDERS = ["mock","claude-code","codex","anthropic","openai"];
 let token = localStorage.getItem(TOKEN_KEY) || "";
-let view = "inbox"; // inbox | search | send
+let view = "inbox"; // inbox | search | send | settings
+let pendingCapture = ""; // populated from #capture= hash, consumed by renderSend()
 
 function toast(msg, kind = "ok") {
   const t = h("div", { class: "toast " + (kind === "err" ? "err" : "") }, msg);
@@ -187,6 +191,7 @@ function renderShell(content, cfg) {
         navBtn("inbox", "Inbox"),
         navBtn("search", "Search"),
         navBtn("send", "Send"),
+        navBtn("settings", "Settings"),
         h("button", { onclick: () => { localStorage.removeItem(TOKEN_KEY); token = ""; render(); }, title: "Forget token on this device" }, "Sign out"),
       ),
     ),
@@ -268,10 +273,16 @@ async function populateDetail(item, body) {
       item.status = "filed"; populateDetail(item, body); toast("Filed → " + r.filed_path);
     }));
   }
-  if (item.status !== "raw") {
+  if (item.status !== "raw" && item.status !== "rejected" && item.status !== "filed") {
     actions.append(actBtn("Re-triage", async () => {
       const r = await api("/api/ingestions/" + encodeURIComponent(item.id) + "/triage", { method: "POST" });
       item.triage = r.triage; populateDetail(item, body); toast("Re-triaged");
+    }, "ghost"));
+  }
+  if (item.status !== "filed" && item.status !== "rejected") {
+    actions.append(actBtn("Reject", async () => {
+      await api("/api/ingestions/" + encodeURIComponent(item.id) + "/reject", { method: "POST" });
+      item.status = "rejected"; populateDetail(item, body); toast("Rejected");
     }, "ghost"));
   }
   body.append(actions);
@@ -341,6 +352,10 @@ async function renderSearch() {
 async function renderSend() {
   const cfg = await api("/api/config");
   const text = h("textarea", { rows: 6, style: "width:100%" });
+  if (pendingCapture) {
+    text.value = pendingCapture;
+    pendingCapture = "";
+  }
   const sender = h("input", { type: "text", placeholder: "sender", value: "self" });
   const thread = h("input", { type: "text", placeholder: "thread_id", value: "manual" });
   const source = h("select", {},
@@ -381,18 +396,103 @@ async function renderSend() {
   text.focus();
 }
 
+// --- Settings ----------------------------------------------------------
+async function renderSettings() {
+  const cfg = await api("/api/config");
+  const { settings } = await api("/api/settings");
+  const provider = h("select", {});
+  for (const p of TRIAGE_PROVIDERS) {
+    const opt = h("option", { value: p }, p);
+    if ((settings.triage_provider ?? cfg.triage_provider_default) === p) opt.selected = true;
+    provider.append(opt);
+  }
+  const folderInputs = {};
+  const folderRows = h("div", { class: "kv" });
+  const defaults = settings.default_folders || {};
+  for (const t of NOTE_TYPES) {
+    const inp = h("input", { type: "text", value: defaults[t] || "", placeholder: "(use triage suggestion)" });
+    folderInputs[t] = inp;
+    folderRows.append(h("div", { class: "k" }, t), h("div", {}, inp));
+  }
+
+  const saveBtn = h("button", { class: "primary" }, "Save settings");
+  saveBtn.addEventListener("click", async () => {
+    const default_folders = {};
+    for (const t of NOTE_TYPES) {
+      const v = folderInputs[t].value.trim();
+      if (v) default_folders[t] = v;
+    }
+    try {
+      await api("/api/settings", {
+        method: "PUT",
+        body: { triage_provider: provider.value, default_folders },
+      });
+      toast("Settings saved");
+    } catch (e) { toast(e.message, "err"); }
+  });
+
+  // Bookmarklet — opens a window at /dashboard#capture=<selection> on this origin.
+  const bookmarklet = buildBookmarklet();
+  const bmLink = h("a", { href: bookmarklet, title: "Drag this to your bookmarks bar" }, "📌 Pebble Capture");
+
+  const card = h("div", { class: "card" },
+    h("h2", {}, "Settings"),
+    h("div", { class: "kv" },
+      h("div", { class: "k" }, "vault path"),
+      h("div", { style: "color:var(--muted)" }, cfg.vault_path, " ",
+        h("span", { class: "pill" }, "edit PEBBLE_VAULT_PATH in .env to change")),
+      h("div", { class: "k" }, "triage provider"),
+      h("div", {}, provider, " ",
+        h("span", { class: "pill" }, "default: " + cfg.triage_provider_default)),
+    ),
+    h("h2", { style: "margin-top:18px" }, "Default folders by type"),
+    h("p", { style: "color:var(--muted);margin:0 0 8px" }, "Override the triage's suggested_folder when filing. Leave blank to use whatever the triage suggests."),
+    folderRows,
+    h("div", { style: "margin-top:14px;display:flex;gap:8px" }, saveBtn),
+    h("h2", { style: "margin-top:24px" }, "Bookmarklet"),
+    h("p", { style: "color:var(--muted);margin:0 0 8px" },
+      "Drag the link below to your bookmarks bar. On any page, press it to send the current selection (or the page URL) to Pebble. Opens this dashboard in a new window — no CORS, no API key.",
+    ),
+    h("div", {}, bmLink),
+  );
+  renderShell(card, cfg);
+}
+
+function buildBookmarklet() {
+  const url = location.origin + location.pathname.replace(/\/$/, "");
+  // Captures selection if any, else the page title + URL. Opens dashboard with #capture=...
+  const code =
+    "(function(){var t=(window.getSelection&&getSelection().toString())||(document.title+'\\n'+location.href);" +
+    "window.open(" + JSON.stringify(url) + "+'#capture='+encodeURIComponent(t),'pebble-capture','width=560,height=620');" +
+    "})();";
+  return "javascript:" + encodeURIComponent(code);
+}
+
 // --- Router ------------------------------------------------------------
+function consumeCaptureHash() {
+  if (!location.hash) return;
+  const m = location.hash.match(/^#capture=([\s\S]*)$/);
+  if (!m) return;
+  try { pendingCapture = decodeURIComponent(m[1]); }
+  catch { pendingCapture = m[1]; }
+  // strip the hash so reloads don't re-prefill
+  history.replaceState(null, "", location.pathname + location.search);
+  view = "send";
+}
+
 async function render() {
   if (!token) { renderLogin(); return; }
   try {
     if (view === "inbox") return await renderInbox();
     if (view === "search") return await renderSearch();
     if (view === "send") return await renderSend();
+    if (view === "settings") return await renderSettings();
   } catch (e) {
     if (e.message !== "unauthorized") toast(e.message, "err");
   }
 }
 
+consumeCaptureHash();
 render();
 </script>
 </body>

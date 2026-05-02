@@ -36,9 +36,11 @@
   - [x] In-page "Send" form that POSTs to `/ingest`
   - [x] Sanitized `/api/config` (never echoes the ingest secret)
   - [x] Tightened auth: all `/api/*`, `/recent`, `/search` require the token
-  - [ ] Settings panel for editing vault path / triage provider from the UI
-- [ ] Reject / dismiss action on triage suggestions (needs new ingest status).
-- [ ] Browser bookmarklet that POSTs the current selection to `/ingest`.
+  - [x] Settings panel for editing triage provider + per-type default folders
+        (vault path stays env-only — mid-flight changes are too risky)
+- [x] Reject / dismiss action on triage suggestions (`rejected` ingest status).
+- [x] Browser bookmarklet that captures the current selection
+      (capture-via-hash → opens the dashboard same-origin, prefills the Send view).
 
 ## Sprint 3 — agents & embeddings
 

@@ -86,6 +86,34 @@ keeps it in `localStorage` on that device only), and you get:
 The dashboard is a single static HTML page served from
 `src/server/dashboard.ts` — no framework, no CDN, no telemetry.
 
+#### Settings
+
+The **Settings** view writes to `<vault>/_System/settings.json` and overlays
+your `.env`. From the UI you can:
+
+- pick the active triage provider (`mock` / `claude-code` / `codex` / reserved
+  API slots) — overrides `PEBBLE_TRIAGE_PROVIDER` per-vault;
+- set per-type default folders that override `triage.suggested_folder` when
+  filing without an explicit folder (e.g. send every `task` to `Tasks/Inbox`).
+
+Vault path and ingest secret stay env-only by design (changing them mid-flight
+is too risky and the secret should never round-trip through the UI).
+
+#### Browser bookmarklet
+
+The Settings view also generates a one-click capture bookmarklet for your
+bookmarks bar. On any page it grabs the current selection (or the page title +
+URL) and opens the dashboard at `#capture=<encoded>`. The dashboard reads the
+hash, switches to the **Send** view, and prefills the textarea — no CORS, no
+extra API key, just a same-origin POST to `/ingest` that you confirm with one
+click.
+
+#### Reject / dismiss
+
+Each row in the inbox now has a **Reject** action that flips the ingestion to
+the new `rejected` status (`POST /api/ingestions/:id/reject`). Filing is
+blocked once an item is rejected; rejecting an already-filed item is a 409.
+
 ## Subscription mode vs API key
 
 Pebble is **subscription-first**: by default it drives your already-logged-in

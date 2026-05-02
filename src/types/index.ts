@@ -31,7 +31,7 @@ export type IngestPayload = z.infer<typeof IngestPayloadSchema>;
 
 // --- Internal record (after ingestion) -----------------------------------
 
-export const IngestStatusSchema = z.enum(["raw", "triaged", "filed", "linked"]);
+export const IngestStatusSchema = z.enum(["raw", "triaged", "filed", "linked", "rejected"]);
 export type IngestStatus = z.infer<typeof IngestStatusSchema>;
 
 export const IngestRecordSchema = IngestPayloadSchema.extend({
