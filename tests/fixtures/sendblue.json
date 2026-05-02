@@ -1,0 +1,15 @@
+{
+  "accountEmail": "user@example.com",
+  "content": "Flight booked: SFO → JFK on 2026-06-01",
+  "media_url": null,
+  "is_outbound": false,
+  "status": "RECEIVED",
+  "error_code": null,
+  "error_message": null,
+  "message_handle": "abc-123",
+  "date_sent": "2026-05-02T08:30:00.000Z",
+  "date_updated": "2026-05-02T08:30:01.000Z",
+  "from_number": "+15551234567",
+  "number": "+15557654321",
+  "was_downgraded": false
+}

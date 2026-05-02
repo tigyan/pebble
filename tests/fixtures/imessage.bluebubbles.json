@@ -1,0 +1,13 @@
+{
+  "type": "new-message",
+  "data": {
+    "guid": "imessage-1",
+    "text": "Remind me to renew the domain tomorrow #todo",
+    "dateCreated": 1746115200000,
+    "handle": { "address": "+15551234567" },
+    "chats": [
+      { "guid": "iMessage;-;chat123", "displayName": "Self" }
+    ],
+    "attachments": []
+  }
+}

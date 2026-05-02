@@ -1,0 +1,96 @@
+# Pebble — MVP roadmap
+
+## What ships in MVP (this commit)
+
+- [x] `/ingest` webhook with shared-secret auth (constant-time compare)
+- [x] Provider adapters: BlueBubbles, Sendblue/Texting Blue, Apple Shortcuts, manual
+- [x] Append-only vault writer (Inbox / Sources / People / _System)
+- [x] SQLite mirror with FTS5 full-text search
+- [x] Heuristic triage classifier (`mock`) emitting Zod-validated `TriageResult`
+- [x] Vault indexer (titles, tags, aliases, headings, wikilinks)
+- [x] Agent tool surface (read/append/create/propose_patch/search/list/mark) with dry-run + JSONL audit log
+- [x] CLI: `init`, `ingest`, `triage`, `index`, `search`, `agent`, `doctor`
+- [x] Integration test: webhook → markdown → SQLite → triage → status
+
+## Sprint 1 — make it daily-useful
+
+- [ ] Real triage providers behind `TriageProvider`
+  - [ ] Anthropic (`claude-opus-4-7`, `claude-sonnet-4-6`, `claude-haiku-4-5`)
+  - [ ] OpenAI Responses API
+  - [ ] `claude-code` and `codex` CLI sub-process drivers
+- [ ] Filing executor: take a `TriageResult` and actually move/file via `propose_patch`,
+      stamping the daily inbox entry with a `[[wikilink]]` to the new home.
+- [ ] Duplicate detection beyond exact-hash: shingled near-dup + LLM tiebreaker.
+- [ ] Attachment ingest: copy/move into `_System/attachments/`, reference by relative path.
+
+## Sprint 2 — UI
+
+- [ ] Next.js or Fastify-served dashboard
+  - [ ] Recent ingestions feed with triage status
+  - [ ] Approve / edit / reject suggested filing
+  - [ ] Vault search box backed by FTS5
+  - [ ] Settings: vault path, ingest secret, triage provider, default folders
+- [ ] Browser-based "send to Pebble" bookmarklet that POSTs to `/ingest`.
+
+## Sprint 3 — agents & embeddings
+
+- [ ] Background worker that runs triage + filing on a schedule.
+- [ ] Optional embeddings (`note_embeddings` table): local model + API providers behind one interface.
+- [ ] Vector + FTS hybrid search.
+- [ ] Subscription-aware agent runner: budget per user, model selection, rate limiting.
+
+## Sprint 4 — hardening
+
+- [ ] OS keychain integration for secrets (macOS Keychain, Linux libsecret).
+- [ ] Optional cloud sync of `_System/` JSONL logs (encrypted).
+- [ ] CI: typecheck + tests + adapter contract tests on every PR.
+- [ ] Schema migrations (`drizzle-kit` or hand-rolled).
+
+---
+
+## Known limitations & open questions
+
+### iMessage providers
+
+There is no first-party Apple API for receiving iMessages on a server. Every
+viable bridge has tradeoffs:
+
+- **BlueBubbles** — free, OSS, but requires an always-on Mac running the
+  BlueBubbles server app. Best for self-hosters.
+- **Sendblue / Texting Blue** — paid SaaS that proxies via TestFlight / Apple
+  Business Chat. Reliable and easy to set up but costs per-message and
+  introduces a third party.
+- **Apple Shortcuts → HTTPS** — works on iOS without extra hardware but is
+  pull-style: the user (or an Automation) has to *trigger* the Shortcut.
+  Best for "send-to-self" flows where the user explicitly captures.
+- **Mac Messages.db scraping** — possible but fragile, breaks on macOS upgrades,
+  and is outside the MVP scope. We may add it as a fifth adapter for
+  read-only historical import.
+
+Pebble is deliberately provider-agnostic: each adapter is ~30 lines and the
+canonical `IngestPayload` is the single contract.
+
+### AI provider extension points
+
+The MVP intentionally ships with a heuristic classifier so the system is
+useful without any API key. Slots for real providers (`anthropic`, `openai`,
+`claude-code`, `codex`, local) live in `src/triage/classifier.ts` and follow
+one interface:
+
+```ts
+interface TriageProvider {
+  name: string;
+  classify(record: IngestRecord): Promise<TriageResult>; // must satisfy TriageResultSchema
+}
+```
+
+This lets us swap models per-user (subscription tier), per-message-type, or
+even per-attempt in a self-consistency loop, without touching the rest of the
+pipeline.
+
+### Privacy
+
+Anything sent to a model leaves the machine. We default to the local heuristic
+provider; an explicit `PEBBLE_TRIAGE_PROVIDER` change is required to send
+content to a remote API. Attachments are stored locally and referenced by path —
+they are never uploaded automatically.

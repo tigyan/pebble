@@ -1,0 +1,40 @@
+# Dependencies
+node_modules/
+.pnp/
+.pnp.js
+
+# Build output
+dist/
+*.tsbuildinfo
+
+# Env / secrets
+.env
+.env.*
+!.env.example
+
+# Local DB / state
+*.sqlite
+*.sqlite-journal
+*.sqlite-wal
+*.sqlite-shm
+data/
+.local/
+
+# Logs
+*.log
+logs/
+_System-local/
+
+# OS / editor
+.DS_Store
+.vscode/
+.idea/
+
+# Test artifacts
+coverage/
+.vitest/
+
+# Local vault sandboxes used in dev
+vault.local/
+test-vault/
+.tmp-vault*/
