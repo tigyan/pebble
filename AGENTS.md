@@ -55,6 +55,7 @@ See `README.md`, `ARCHITECTURE.md`, `ROADMAP.md` for the user-facing picture.
 | Provider adapters              | `src/adapters/{bluebubbles,sendblue,shortcuts,manual}.ts` |
 | Adapter selection              | `src/adapters/index.ts`                       |
 | HTTP server                    | `src/server/{server,index}.ts`                |
+| Dashboard HTML (single page)   | `src/server/dashboard.ts`                     |
 | Ingestion pipeline             | `src/ingest/pipeline.ts`                      |
 | Vault writer (append-only)     | `src/vault/writer.ts`                         |
 | Vault paths / frontmatter      | `src/vault/{paths,frontmatter}.ts`            |

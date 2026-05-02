@@ -66,6 +66,26 @@ npm run cli -- search "renew"
 npm run cli -- agent --dry-run
 ```
 
+### Dashboard
+
+```bash
+npm run cli -- dashboard       # boots the server and prints the URL
+# → http://127.0.0.1:8787/dashboard
+```
+
+Open it in your browser, paste your `PEBBLE_INGEST_SECRET` once (the dashboard
+keeps it in `localStorage` on that device only), and you get:
+
+- **Inbox** — recent ingestions with status pills (`raw` / `triaged` / `filed`),
+  click any row to expand. Buttons trigger triage on demand, file into the
+  suggested folder, edit the folder before filing, or re-triage.
+- **Search** — vault search backed by SQLite FTS5.
+- **Send** — manual capture form that POSTs to `/ingest` (useful when you
+  don't have an iMessage bridge wired up yet).
+
+The dashboard is a single static HTML page served from
+`src/server/dashboard.ts` — no framework, no CDN, no telemetry.
+
 ## Subscription mode vs API key
 
 Pebble is **subscription-first**: by default it drives your already-logged-in

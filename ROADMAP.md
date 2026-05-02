@@ -29,12 +29,16 @@
 
 ## Sprint 2 — UI
 
-- [ ] Next.js or Fastify-served dashboard
-  - [ ] Recent ingestions feed with triage status
-  - [ ] Approve / edit / reject suggested filing
-  - [ ] Vault search box backed by FTS5
-  - [ ] Settings: vault path, ingest secret, triage provider, default folders
-- [ ] Browser-based "send to Pebble" bookmarklet that POSTs to `/ingest`.
+- [x] Fastify-served dashboard (single-file vanilla HTML/CSS/JS, no framework)
+  - [x] Recent ingestions feed with triage status pills
+  - [x] Approve / edit suggested filing (folder override on the fly)
+  - [x] Vault search box backed by FTS5
+  - [x] In-page "Send" form that POSTs to `/ingest`
+  - [x] Sanitized `/api/config` (never echoes the ingest secret)
+  - [x] Tightened auth: all `/api/*`, `/recent`, `/search` require the token
+  - [ ] Settings panel for editing vault path / triage provider from the UI
+- [ ] Reject / dismiss action on triage suggestions (needs new ingest status).
+- [ ] Browser bookmarklet that POSTs the current selection to `/ingest`.
 
 ## Sprint 3 — agents & embeddings
 

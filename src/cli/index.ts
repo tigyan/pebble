@@ -9,6 +9,7 @@ import { ingest } from "../ingest/pipeline.js";
 import { runTriage } from "../triage/runner.js";
 import { fileAllTriaged } from "../filing/executor.js";
 import { manualAdapter } from "../adapters/manual.js";
+import { buildServer } from "../server/server.js";
 import { IngestPayloadSchema } from "../types/index.js";
 import { makeAgentTools } from "../agent/tools.js";
 import { VAULT_DIRS } from "../vault/paths.js";
@@ -176,6 +177,25 @@ program
     } finally {
       db.close();
     }
+  });
+
+program
+  .command("dashboard")
+  .description("Start the HTTP server and print the dashboard URL")
+  .option("--host <host>", "Override PEBBLE_HOST")
+  .option("--port <port>", "Override PEBBLE_PORT")
+  .action(async (opts) => {
+    if (opts.host) process.env.PEBBLE_HOST = opts.host;
+    if (opts.port) process.env.PEBBLE_PORT = opts.port;
+    const cfg = loadConfig();
+    const db = openDB(cfg.dbPath);
+    const app = await buildServer({ config: cfg, db });
+    const close = async () => { await app.close(); db.close(); process.exit(0); };
+    process.on("SIGINT", close);
+    process.on("SIGTERM", close);
+    await app.listen({ host: cfg.host, port: cfg.port });
+    log(`pebble dashboard: http://${cfg.host}:${cfg.port}/dashboard`);
+    log(`(token: PEBBLE_INGEST_SECRET — same as your ingest secret)`);
   });
 
 program
