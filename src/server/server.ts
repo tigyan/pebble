@@ -10,13 +10,19 @@ import {
   makeSettingsStore,
   type SettingsStore,
 } from "../settings/store.js";
+import { agentStatus, runAgentOnce } from "../agent/runner.js";
+import { getEmbeddingProvider } from "../embeddings/provider.js";
+import { searchHybrid } from "../embeddings/search.js";
 import { getProvider } from "../triage/classifier.js";
+import { startWorker, type WorkerHandle } from "../worker/index.js";
 import { dashboardHtml } from "./dashboard.js";
 
 export interface ServerDeps {
   config: PebbleConfig;
   db: PebbleDB;
   settings?: SettingsStore;
+  /** Disable background worker (tests pass false to keep behaviour deterministic). */
+  worker?: boolean;
 }
 
 const PUBLIC_PATHS = new Set(["/health", "/dashboard"]);
@@ -32,6 +38,17 @@ export async function buildServer(deps: ServerDeps): Promise<FastifyInstance> {
     bodyLimit: 5 * 1024 * 1024,
     disableRequestLogging: false,
   });
+
+  let worker: WorkerHandle | null = null;
+  if (deps.worker !== false) {
+    worker = startWorker({
+      config: deps.config,
+      db: deps.db,
+      settings,
+      onError: (err) => app.log.error({ err }, "worker tick failed"),
+    });
+    app.addHook("onClose", async () => worker?.stop());
+  }
 
   // --- Constant-time auth on every authenticated route -------------------
   app.addHook("onRequest", async (req, reply) => {
@@ -106,7 +123,41 @@ export async function buildServer(deps: ServerDeps): Promise<FastifyInstance> {
       return reply.code(400).send({ ok: false, issues: parsed.error.issues });
     }
     const updated = await settings.set(parsed.data);
+    worker?.reconfigure();
     return { ok: true, settings: updated };
+  });
+
+  app.get("/api/worker", async () => ({
+    worker: worker?.status() ?? { running: false, enabled: false },
+    agent: agentStatus({ db: deps.db, settings, config: deps.config }),
+  }));
+
+  app.post("/api/worker/run", async (_req, reply) => {
+    if (!worker) return reply.code(503).send({ ok: false, error: "worker disabled" });
+    try {
+      const result = await worker.runOnce();
+      return { ok: true, ...result, status: worker.status() };
+    } catch (err) {
+      return reply.code(500).send({ ok: false, error: (err as Error).message });
+    }
+  });
+
+  app.get("/api/agent", async () => agentStatus({ db: deps.db, settings, config: deps.config }));
+
+  app.post("/api/agent/run", async (req, reply) => {
+    const q = (req.body as { limit?: number; auto_file?: boolean } | null) ?? {};
+    try {
+      const result = await runAgentOnce({
+        config: deps.config,
+        db: deps.db,
+        settings,
+        ...(q.limit ? { limit: Math.max(1, Math.min(50, Number(q.limit))) } : {}),
+        autoFile: !!q.auto_file,
+      });
+      return { ok: true, ...result };
+    } catch (err) {
+      return reply.code(500).send({ ok: false, error: (err as Error).message });
+    }
   });
 
   app.get("/api/recent", async (req) => {
@@ -191,12 +242,22 @@ export async function buildServer(deps: ServerDeps): Promise<FastifyInstance> {
   });
 
   app.get("/api/search", async (req, reply) => {
-    const q = (req.query as { q?: string }) ?? {};
+    const q = (req.query as { q?: string; hybrid?: string; provider?: string }) ?? {};
     if (!q.q) {
       reply.code(400).send({ error: "missing q" });
       return;
     }
-    return { hits: deps.db.searchNotes(q.q, 25) };
+    if (q.hybrid === "true" || q.hybrid === "1") {
+      let embedder;
+      try {
+        embedder = getEmbeddingProvider(q.provider ?? "mock");
+      } catch (err) {
+        return reply.code(400).send({ error: (err as Error).message });
+      }
+      const hits = await searchHybrid({ db: deps.db, query: q.q, embedder, limit: 25 });
+      return { hits, mode: "hybrid", model: embedder.model };
+    }
+    return { hits: deps.db.searchNotes(q.q, 25), mode: "fts" };
   });
 
   // Legacy aliases (kept for back-compat with the original CLI examples).

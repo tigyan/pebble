@@ -28,7 +28,7 @@ beforeEach(async () => {
   } as NodeJS.ProcessEnv;
   const config = loadConfig(env);
   db = openDB(config.dbPath);
-  app = await buildServer({ config, db });
+  app = await buildServer({ config, db, worker: false });
 });
 
 afterEach(async () => {

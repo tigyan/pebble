@@ -400,6 +400,8 @@ async function renderSend() {
 async function renderSettings() {
   const cfg = await api("/api/config");
   const { settings } = await api("/api/settings");
+  let workerStatus = null;
+  try { workerStatus = (await api("/api/worker")).worker; } catch {}
   const provider = h("select", {});
   for (const p of TRIAGE_PROVIDERS) {
     const opt = h("option", { value: p }, p);
@@ -415,6 +417,22 @@ async function renderSettings() {
     folderRows.append(h("div", { class: "k" }, t), h("div", {}, inp));
   }
 
+  const w = settings.worker || {};
+  const wEnabled = h("input", { type: "checkbox" });
+  if (w.enabled) wEnabled.checked = true;
+  const wAutoFile = h("input", { type: "checkbox" });
+  if (w.auto_file) wAutoFile.checked = true;
+  const wInterval = h("input", { type: "number", min: "5", step: "5", value: String(Math.round((w.interval_ms ?? 60000) / 1000)) });
+  const wBatch = h("input", { type: "number", min: "1", max: "100", value: String(w.batch ?? 5) });
+
+  // Agent budgets / rate limit
+  const a = settings.agent || {};
+  const aDailyBudget = h("input", { type: "number", min: "0", value: String(a.daily_call_budget ?? 0) });
+  const aRate = h("input", { type: "number", min: "0", value: String(a.rate_limit_per_min ?? 0) });
+  const aBurst = h("input", { type: "number", min: "1", value: String(a.burst ?? 5) });
+  let agentSnapshot = null;
+  try { agentSnapshot = await api("/api/agent"); } catch {}
+
   const saveBtn = h("button", { class: "primary" }, "Save settings");
   saveBtn.addEventListener("click", async () => {
     const default_folders = {};
@@ -422,14 +440,50 @@ async function renderSettings() {
       const v = folderInputs[t].value.trim();
       if (v) default_folders[t] = v;
     }
+    const worker = {
+      enabled: wEnabled.checked,
+      auto_file: wAutoFile.checked,
+      interval_ms: Math.max(1000, Number(wInterval.value || 60) * 1000),
+      batch: Math.max(1, Math.min(100, Number(wBatch.value || 5))),
+    };
+    const agent = {
+      daily_call_budget: Math.max(0, Number(aDailyBudget.value || 0)),
+      rate_limit_per_min: Math.max(0, Number(aRate.value || 0)),
+      burst: Math.max(1, Number(aBurst.value || 5)),
+    };
     try {
       await api("/api/settings", {
         method: "PUT",
-        body: { triage_provider: provider.value, default_folders },
+        body: { triage_provider: provider.value, default_folders, worker, agent },
       });
       toast("Settings saved");
     } catch (e) { toast(e.message, "err"); }
   });
+
+  const runNowBtn = h("button", {}, "Run worker now");
+  runNowBtn.addEventListener("click", async () => {
+    try {
+      const r = await api("/api/worker/run", { method: "POST" });
+      toast("Worker run: triaged " + r.triaged + ", filed " + r.filed);
+    } catch (e) { toast(e.message, "err"); }
+  });
+
+  const wStatusLine = workerStatus
+    ? "running=" + workerStatus.running + " · enabled=" + workerStatus.enabled +
+      " · ticks=" + (workerStatus.ticks_total ?? 0) +
+      " · triaged=" + (workerStatus.triaged_total ?? 0) +
+      " · filed=" + (workerStatus.filed_total ?? 0) +
+      (workerStatus.last_error ? " · err: " + workerStatus.last_error : "") +
+      (workerStatus.last_tick_at ? " · last: " + workerStatus.last_tick_at : "")
+    : "(unavailable)";
+  const aStatusLine = agentSnapshot
+    ? "model=" + agentSnapshot.model +
+      " · used=" + agentSnapshot.usage.calls_used +
+      " · limit=" + (agentSnapshot.usage.calls_limit || "∞") +
+      " · remaining=" + (agentSnapshot.usage.remaining === null || agentSnapshot.usage.remaining === undefined
+        ? "∞"
+        : (Number.isFinite(agentSnapshot.usage.remaining) ? agentSnapshot.usage.remaining : "∞"))
+    : "(unavailable)";
 
   // Bookmarklet — opens a window at /dashboard#capture=<selection> on this origin.
   const bookmarklet = buildBookmarklet();
@@ -448,7 +502,24 @@ async function renderSettings() {
     h("h2", { style: "margin-top:18px" }, "Default folders by type"),
     h("p", { style: "color:var(--muted);margin:0 0 8px" }, "Override the triage's suggested_folder when filing. Leave blank to use whatever the triage suggests."),
     folderRows,
-    h("div", { style: "margin-top:14px;display:flex;gap:8px" }, saveBtn),
+    h("h2", { style: "margin-top:24px" }, "Background worker"),
+    h("p", { style: "color:var(--muted);margin:0 0 8px" }, "Periodically triage raw ingestions; optionally auto-file them into their typed home."),
+    h("div", { class: "kv" },
+      h("div", { class: "k" }, "enabled"), h("div", {}, wEnabled),
+      h("div", { class: "k" }, "auto-file"), h("div", {}, wAutoFile),
+      h("div", { class: "k" }, "interval (s)"), h("div", {}, wInterval),
+      h("div", { class: "k" }, "batch size"), h("div", {}, wBatch),
+      h("div", { class: "k" }, "status"), h("div", { style: "color:var(--muted);font-size:12px" }, wStatusLine),
+    ),
+    h("div", { style: "margin-top:14px;display:flex;gap:8px" }, saveBtn, runNowBtn),
+    h("h2", { style: "margin-top:24px" }, "Agent budgets"),
+    h("p", { style: "color:var(--muted);margin:0 0 8px" }, "Cap LLM calls per day and per-minute. Set 0 for unlimited."),
+    h("div", { class: "kv" },
+      h("div", { class: "k" }, "daily call budget"), h("div", {}, aDailyBudget),
+      h("div", { class: "k" }, "rate per minute"), h("div", {}, aRate),
+      h("div", { class: "k" }, "burst"), h("div", {}, aBurst),
+      h("div", { class: "k" }, "today"), h("div", { style: "color:var(--muted);font-size:12px" }, aStatusLine),
+    ),
     h("h2", { style: "margin-top:24px" }, "Bookmarklet"),
     h("p", { style: "color:var(--muted);margin:0 0 8px" },
       "Drag the link below to your bookmarks bar. On any page, press it to send the current selection (or the page URL) to Pebble. Opens this dashboard in a new window — no CORS, no API key.",

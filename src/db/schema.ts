@@ -62,4 +62,24 @@ CREATE TABLE IF NOT EXISTS agent_actions (
 );
 
 CREATE INDEX IF NOT EXISTS ix_agent_actions_ts ON agent_actions(ts);
+
+CREATE TABLE IF NOT EXISTS note_embeddings (
+    path         TEXT NOT NULL,
+    model        TEXT NOT NULL,
+    dim          INTEGER NOT NULL,
+    vec_blob     BLOB NOT NULL,
+    content_hash TEXT NOT NULL,
+    indexed_at   TEXT NOT NULL,
+    PRIMARY KEY (path, model)
+);
+
+CREATE INDEX IF NOT EXISTS ix_note_embeddings_model ON note_embeddings(model);
+
+CREATE TABLE IF NOT EXISTS agent_budget (
+    day    TEXT NOT NULL,
+    model  TEXT NOT NULL,
+    calls  INTEGER NOT NULL DEFAULT 0,
+    tokens INTEGER NOT NULL DEFAULT 0,
+    PRIMARY KEY (day, model)
+);
 `;

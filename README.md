@@ -62,7 +62,9 @@ npm run cli -- ingest --text "Idea: pebble could auto-summarize threads"
 npm run cli -- triage --limit 10 --file    # classify, then file into typed home
 npm run cli -- file                          # file all already-triaged items
 npm run cli -- index
+npm run cli -- embed                         # vectorize every indexed note
 npm run cli -- search "renew"
+npm run cli -- search --hybrid "renew"      # FTS + cosine, rank-fused
 npm run cli -- agent --dry-run
 ```
 
@@ -98,6 +100,25 @@ your `.env`. From the UI you can:
 
 Vault path and ingest secret stay env-only by design (changing them mid-flight
 is too risky and the secret should never round-trip through the UI).
+
+#### Background worker
+
+The Settings view also has a **Background worker** section. Toggle it on and
+the server periodically (default every 60 s, configurable) takes the next
+batch of `raw` ingestions, runs them through the active triage provider, and
+optionally files the result into its typed home (off by default). Status
+surfaces via `GET /api/worker` and you can also force a one-shot run with
+`POST /api/worker/run`. Settings changes apply immediately — no restart.
+
+#### Agent budgets
+
+Below that, **Agent budgets** caps how many model calls Pebble can make in
+a single UTC day per model, plus an in-memory token-bucket rate limit
+(`rate_limit_per_min`, with a `burst` parameter). Both the worker and
+`POST /api/agent/run` enforce them; counters live in `agent_budget(day,
+model, …)` so the cap survives restarts. Set either to `0` for unlimited.
+Status (`{ model, used, limit, remaining }`) is exposed via `GET /api/agent`
+and is also embedded in `GET /api/worker`.
 
 #### Browser bookmarklet
 
@@ -185,6 +206,28 @@ to Markdown. Filenames are sanitized; size is capped at 32 MiB per file.
 Already-vault-internal paths and URI schemes Pebble doesn't recognize are
 left untouched. **Attachments are never auto-uploaded to model providers** —
 they are referenced by path only. This is a hard invariant.
+
+## Embeddings & hybrid search
+
+Pebble can vectorize every note in the vault and blend lexical (FTS5) and
+semantic (cosine over note embeddings) hits via reciprocal-rank fusion.
+
+```bash
+npm run cli -- embed                       # uses the mock provider (offline)
+npm run cli -- embed --provider openai     # uses PEBBLE_OPENAI_EMBEDDING_MODEL
+npm run cli -- search --hybrid "renew"    # rank-fuses FTS + vector
+```
+
+```bash
+curl -H "x-pebble-token: $PEBBLE_INGEST_SECRET" \
+  "http://127.0.0.1:8787/api/search?q=renew&hybrid=true&provider=mock"
+```
+
+Vectors are stored in `note_embeddings(path, model, dim, vec_blob, …)` with
+a content-hash gate so re-running `pebble embed` is a no-op when nothing
+changed. Re-embedding with a different model adds a row instead of replacing
+— multi-model setups don't fight. Hybrid search transparently falls back to
+FTS-only when no embeddings exist for the requested model.
 
 ## Vault layout (Obsidian-compatible)
 

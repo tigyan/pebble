@@ -4,6 +4,8 @@ import path from "node:path";
 import { Command } from "commander";
 import { loadConfig } from "../config.js";
 import { openDB } from "../db/client.js";
+import { embedAllNotes } from "../embeddings/runner.js";
+import { getEmbeddingProvider } from "../embeddings/provider.js";
 import { indexVault } from "../indexer/index.js";
 import { ingest } from "../ingest/pipeline.js";
 import { runTriage } from "../triage/runner.js";
@@ -136,14 +138,63 @@ program
   });
 
 program
-  .command("search")
-  .description("Full-text search the vault")
-  .argument("<query...>", "FTS5 query")
-  .action(async (queryParts: string[]) => {
+  .command("embed")
+  .description("Embed every indexed note with the configured embedding provider")
+  .option("--provider <name>", "Embedding provider (mock|openai)", "mock")
+  .option("--limit <n>", "Cap notes per run")
+  .option("--batch <n>", "Batch size", "16")
+  .option("--force", "Re-embed even when content_hash matches")
+  .action(async (opts) => {
     const cfg = loadConfig();
     const db = openDB(cfg.dbPath);
     try {
-      const hits = db.searchNotes(queryParts.join(" "), 25);
+      const provider = getEmbeddingProvider(opts.provider);
+      const result = await embedAllNotes({
+        db,
+        provider,
+        force: !!opts.force,
+        ...(opts.limit ? { limit: Number(opts.limit) } : {}),
+        batchSize: Number(opts.batch) || 16,
+      });
+      log(
+        `embed[${provider.name}/${provider.model} dim=${provider.dim}]: ` +
+          `scanned=${result.scanned} embedded=${result.embedded} ` +
+          `skipped=${result.skipped} errors=${result.errors}`,
+      );
+    } finally {
+      db.close();
+    }
+  });
+
+program
+  .command("search")
+  .description("Search the vault (FTS5 by default; --hybrid blends FTS + vector cosine)")
+  .argument("<query...>", "FTS5 query")
+  .option("--hybrid", "Use hybrid FTS + vector search (requires `pebble embed` first)")
+  .option("--provider <name>", "Embedding provider for --hybrid (mock|openai)", "mock")
+  .action(async (queryParts: string[], opts) => {
+    const cfg = loadConfig();
+    const db = openDB(cfg.dbPath);
+    try {
+      const query = queryParts.join(" ");
+      if (opts.hybrid) {
+        const embedder = getEmbeddingProvider(opts.provider);
+        const { searchHybrid } = await import("../embeddings/search.js");
+        const hits = await searchHybrid({ db, query, embedder, limit: 25 });
+        if (!hits.length) {
+          log("(no hits)");
+          return;
+        }
+        for (const h of hits) {
+          const v = h.vector_score == null ? "—" : h.vector_score.toFixed(3);
+          const r = h.fts_rank == null ? "—" : String(h.fts_rank);
+          log(`${h.title ?? "(untitled)"} — ${h.path}`);
+          log(`    fts_rank=${r} cos=${v} score=${h.score.toFixed(4)}`);
+          if (h.snippet) log(`    ${h.snippet}`);
+        }
+        return;
+      }
+      const hits = db.searchNotes(query, 25);
       if (!hits.length) {
         log("(no hits)");
         return;

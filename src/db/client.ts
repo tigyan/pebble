@@ -31,6 +31,30 @@ export interface PebbleDB {
   }): void;
   searchNotes(query: string, limit?: number): Array<{ path: string; title: string | null; snippet: string }>;
   logAgentAction(action: AgentAction): void;
+  upsertEmbedding(args: {
+    path: string;
+    model: string;
+    dim: number;
+    vec: Buffer;
+    contentHash: string;
+  }): void;
+  getEmbedding(path: string, model: string): {
+    path: string;
+    model: string;
+    dim: number;
+    vec: Buffer;
+    contentHash: string;
+    indexedAt: string;
+  } | null;
+  listEmbeddings(model: string): Array<{
+    path: string;
+    dim: number;
+    vec: Buffer;
+    contentHash: string;
+  }>;
+  countEmbeddings(model: string): number;
+  getBudgetUsage(day: string, model: string): { calls: number; tokens: number };
+  incrementBudget(args: { day: string; model: string; calls: number; tokens: number }): void;
   close(): void;
 }
 
@@ -84,6 +108,36 @@ export function openDB(dbPath: string): PebbleDB {
     insertAgentAction: db.prepare(`
       INSERT INTO agent_actions (ts, agent, tool, args_json, dry_run, ok, error, summary)
       VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+    `),
+    upsertEmbedding: db.prepare(`
+      INSERT INTO note_embeddings (path, model, dim, vec_blob, content_hash, indexed_at)
+      VALUES (@path, @model, @dim, @vec, @content_hash, @indexed_at)
+      ON CONFLICT(path, model) DO UPDATE SET
+        dim          = excluded.dim,
+        vec_blob     = excluded.vec_blob,
+        content_hash = excluded.content_hash,
+        indexed_at   = excluded.indexed_at
+    `),
+    getEmbedding: db.prepare(`
+      SELECT path, model, dim, vec_blob, content_hash, indexed_at
+      FROM note_embeddings WHERE path = ? AND model = ?
+    `),
+    listEmbeddings: db.prepare(`
+      SELECT path, dim, vec_blob, content_hash
+      FROM note_embeddings WHERE model = ?
+    `),
+    countEmbeddings: db.prepare(`
+      SELECT COUNT(*) AS n FROM note_embeddings WHERE model = ?
+    `),
+    getBudget: db.prepare(`
+      SELECT calls, tokens FROM agent_budget WHERE day = ? AND model = ?
+    `),
+    incrementBudget: db.prepare(`
+      INSERT INTO agent_budget (day, model, calls, tokens)
+      VALUES (@day, @model, @calls, @tokens)
+      ON CONFLICT(day, model) DO UPDATE SET
+        calls  = calls  + excluded.calls,
+        tokens = tokens + excluded.tokens
     `),
   };
 
@@ -182,6 +236,65 @@ export function openDB(dbPath: string): PebbleDB {
         a.error ?? null,
         a.result_summary ?? null,
       );
+    },
+    upsertEmbedding({ path, model, dim, vec, contentHash }) {
+      stmts.upsertEmbedding.run({
+        path,
+        model,
+        dim,
+        vec,
+        content_hash: contentHash,
+        indexed_at: new Date().toISOString(),
+      });
+    },
+    getEmbedding(path, model) {
+      const row = stmts.getEmbedding.get(path, model) as
+        | {
+            path: string;
+            model: string;
+            dim: number;
+            vec_blob: Buffer;
+            content_hash: string;
+            indexed_at: string;
+          }
+        | undefined;
+      if (!row) return null;
+      return {
+        path: row.path,
+        model: row.model,
+        dim: row.dim,
+        vec: row.vec_blob,
+        contentHash: row.content_hash,
+        indexedAt: row.indexed_at,
+      };
+    },
+    listEmbeddings(model) {
+      return (
+        stmts.listEmbeddings.all(model) as Array<{
+          path: string;
+          dim: number;
+          vec_blob: Buffer;
+          content_hash: string;
+        }>
+      ).map((r) => ({
+        path: r.path,
+        dim: r.dim,
+        vec: r.vec_blob,
+        contentHash: r.content_hash,
+      }));
+    },
+    countEmbeddings(model) {
+      const row = stmts.countEmbeddings.get(model) as { n: number };
+      return row.n;
+    },
+    getBudgetUsage(day, model) {
+      const row = stmts.getBudget.get(day, model) as
+        | { calls: number; tokens: number }
+        | undefined;
+      return { calls: row?.calls ?? 0, tokens: row?.tokens ?? 0 };
+    },
+    incrementBudget({ day, model, calls, tokens }) {
+      stmts.incrementBudget.run({ day, model, calls, tokens });
     },
     close() {
       db.close();

@@ -51,10 +51,26 @@
 
 ## Sprint 3 — agents & embeddings
 
-- [ ] Background worker that runs triage + filing on a schedule.
-- [ ] Optional embeddings (`note_embeddings` table): local model + API providers behind one interface.
-- [ ] Vector + FTS hybrid search.
-- [ ] Subscription-aware agent runner: budget per user, model selection, rate limiting.
+- [x] Background worker that runs triage + (optional) auto-filing on a
+      configurable schedule. Settings-driven (enabled / interval_ms /
+      auto_file / batch); status surfaced via `GET /api/worker`; manual
+      one-shot via `POST /api/worker/run`. Tests cover triage, auto-file,
+      reconfigure, and error capture.
+- [x] Optional embeddings (`note_embeddings` table): one interface
+      (`EmbeddingProvider`), `mock` (offline, deterministic, hash-based) and
+      `openai` (`/v1/embeddings`) implementations. Vectors stored as Float32
+      BLOBs keyed by `(path, model)`. CLI: `pebble embed [--provider …]
+      [--force] [--limit n]`. Re-embedding is content-hash gated.
+- [x] Vector + FTS hybrid search via reciprocal-rank fusion. CLI:
+      `pebble search --hybrid <q>`. HTTP: `GET /api/search?q=…&hybrid=true`.
+      Falls back to FTS-only when no embeddings exist for the model.
+- [x] Subscription-aware agent runner with budgets + rate limiting:
+      `src/agent/{budget,runner}.ts`. Persistent daily call budget keyed by
+      `(day, model)`, in-memory token-bucket rate limiter. Worker now consults
+      both before each tick. Endpoints: `GET /api/agent`, `POST /api/agent/run`.
+      Budget snapshot is also surfaced on `GET /api/worker`. Settings expose
+      `agent.daily_call_budget`, `agent.rate_limit_per_min`, `agent.burst`,
+      `agent.triage_model`.
 
 ## Sprint 4 — hardening
 

@@ -52,6 +52,18 @@ See `README.md`, `ARCHITECTURE.md`, `ROADMAP.md` for the user-facing picture.
 10. **`rejected` is terminal-ish.** Once an ingestion is `rejected`, filing it
     is a 409. Rejecting a `filed` ingestion is also a 409. Don't quietly
     flip a rejected item back to `raw` without an explicit user action.
+11. **Worker is opt-in and settings-driven.** `settings.worker.enabled` gates
+    the timer; `auto_file` gates filing (off by default — triage-only is the
+    safe default). The worker reads settings on every tick, so config changes
+    don't require a restart. `PUT /api/settings` calls `worker.reconfigure()`
+    so toggling from the UI is immediate. Tests pass `worker: false` to
+    `buildServer` to avoid leaking timers.
+12. **Budget is enforced before classify().** Both the worker and
+    `runAgentOnce()` consult `BudgetTracker.ensureAvailable(model, limit)`
+    *before* each model call and `RateLimiter.acquire()` to throttle. Budget
+    counters are persisted to SQLite (`agent_budget(day, model, calls,
+    tokens)`) so a restart doesn't reset the daily cap. `daily_call_budget=0`
+    and `rate_limit_per_min=0` mean unlimited.
 
 ## Where things live
 
@@ -77,6 +89,12 @@ See `README.md`, `ARCHITECTURE.md`, `ROADMAP.md` for the user-facing picture.
 | Attachment materializer        | `src/ingest/attachments.ts`                   |
 | Filing executor (typed-home)   | `src/filing/executor.ts`                      |
 | Settings overlay (file → env)  | `src/settings/store.ts`                       |
+| Embedding providers + helpers  | `src/embeddings/provider.ts`                  |
+| Embedding runner (vault → DB)  | `src/embeddings/runner.ts`                    |
+| Hybrid FTS+vector search       | `src/embeddings/search.ts`                    |
+| Background worker              | `src/worker/index.ts`                         |
+| Agent budget + rate limiter    | `src/agent/budget.ts`                         |
+| Agent runner (one-shot)        | `src/agent/runner.ts`                         |
 | Agent tools                    | `src/agent/tools.ts`                          |
 | CLI                            | `src/cli/index.ts`                            |
 | Tests                          | `tests/{unit,integration}/*.test.ts`          |
