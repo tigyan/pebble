@@ -1,6 +1,17 @@
 import path from "node:path";
+import os from "node:os";
 import { z } from "zod";
 import { buildSecretSource, type SecretSource } from "./secrets/source.js";
+
+// why: shells expand `~` before exec; .env / process.env never do — Node
+// would treat "~/Obsidian/Vault" as a *relative* path and create a
+// literal "~" directory next to the cwd. Resolve it explicitly.
+function expandHome(p: string): string {
+  if (!p) return p;
+  if (p === "~") return os.homedir();
+  if (p.startsWith("~/")) return path.join(os.homedir(), p.slice(2));
+  return p;
+}
 
 const ConfigSchema = z.object({
   vaultPath: z.string().min(1, "PEBBLE_VAULT_PATH is required"),
@@ -32,13 +43,14 @@ export function loadConfig(
   env: NodeJS.ProcessEnv = process.env,
   secrets: SecretSource = buildSecretSource(env),
 ): PebbleConfig {
-  const vaultPath = env.PEBBLE_VAULT_PATH ?? "";
+  const vaultPath = expandHome(env.PEBBLE_VAULT_PATH ?? "");
+  const explicitDb = expandHome(env.PEBBLE_DB_PATH ?? "");
   const defaultDb = vaultPath
     ? path.join(vaultPath, "_System", "pebble.sqlite")
     : "";
   return ConfigSchema.parse({
     vaultPath,
-    dbPath: env.PEBBLE_DB_PATH || defaultDb,
+    dbPath: explicitDb || defaultDb,
     // ingestSecret is the one core secret resolved via SecretSource so
     // users on PEBBLE_SECRETS_SOURCE=auto get keychain-first lookup.
     // API keys (Anthropic/OpenAI) are read via the same source where they
