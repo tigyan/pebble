@@ -38,3 +38,6 @@ coverage/
 vault.local/
 test-vault/
 .tmp-vault*/
+
+# Personal walkthrough / setup notes (not part of the public repo)
+GUIDE.md
