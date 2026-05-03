@@ -83,7 +83,16 @@
       `getEmbeddingProvider` resolve API keys the same way. CLI:
       `pebble secrets set|get|unset <KEY>` (set reads from stdin; get prints
       only with `--show`).
-- [ ] Optional cloud sync of `_System/` JSONL logs (encrypted).
+- ~~Optional cloud sync of `_System/` JSONL logs (encrypted).~~
+      *Dropped as YAGNI.* The only non-regenerable items in `_System/`
+      are the agent-actions audit log and the `patches/` revert history,
+      both operational rather than content. The vault itself is already
+      synced via the user's Obsidian setup, and SQLite rebuilds via
+      `pebble index`. A passphrase-managed encrypted backup format adds
+      ongoing maintenance for a personal tool whose actual value is
+      already protected. Users who want offsite copies of `_System/` can
+      point any directory-level sync (iCloud Drive, Dropbox, Drive) at
+      the folder.
 - [x] CI: typecheck + tests + adapter contract tests on every PR.
       `.github/workflows/ci.yml` runs on push-to-main and PRs to main:
       `npm ci`, `npm run typecheck`, `npm test` on Ubuntu / Node 22.
