@@ -47,6 +47,26 @@ describe("integration: webhook → inbox → triage → suggested filing", () =>
     expect(res.statusCode).toBe(401);
   });
 
+  it("accepts the secret via ?token= query param (header-less senders)", async () => {
+    const res = await app.inject({
+      method: "POST",
+      url: `/ingest?token=${encodeURIComponent(SECRET)}`,
+      headers: { "content-type": "application/json" },
+      payload: { source: "manual", sender: "self", thread_id: "t", text: "via query" },
+    });
+    expect(res.statusCode).toBe(202);
+  });
+
+  it("rejects an incorrect ?token= query param", async () => {
+    const res = await app.inject({
+      method: "POST",
+      url: "/ingest?token=wrong",
+      headers: { "content-type": "application/json" },
+      payload: { source: "manual", sender: "self", thread_id: "t", text: "x" },
+    });
+    expect(res.statusCode).toBe(401);
+  });
+
   it("ingests a BlueBubbles iMessage payload, writes Markdown, then triages it", async () => {
     const body = JSON.parse(
       await fs.readFile(path.join(FIX, "imessage.bluebubbles.json"), "utf8"),

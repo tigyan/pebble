@@ -52,7 +52,26 @@ export async function buildServer(deps: ServerDeps): Promise<FastifyInstance> {
   }
 
   const app = Fastify({
-    logger: { level: process.env.LOG_LEVEL ?? "info" },
+    logger: {
+      level: process.env.LOG_LEVEL ?? "info",
+      // why: ?token= is allowed as a fallback for clients that can't set
+      // custom headers (e.g. some BlueBubbles Server builds). Mask it
+      // before the URL ever reaches a log sink.
+      serializers: {
+        req(req) {
+          const out: Record<string, unknown> = {
+            method: req.method,
+            url: redactToken(req.url),
+            hostname: req.hostname,
+            remoteAddress: req.ip,
+          };
+          if (typeof req.socket?.remotePort === "number") {
+            out.remotePort = req.socket.remotePort;
+          }
+          return out;
+        },
+      },
+    },
     bodyLimit: 5 * 1024 * 1024,
     disableRequestLogging: false,
   });
@@ -71,7 +90,13 @@ export async function buildServer(deps: ServerDeps): Promise<FastifyInstance> {
   // --- Constant-time auth on every authenticated route -------------------
   app.addHook("onRequest", async (req, reply) => {
     if (PUBLIC_PATHS.has(req.url.split("?")[0]!)) return;
-    const got = (req.headers["x-pebble-token"] ?? "") as string;
+    // why: header is preferred. ?token= is a fallback for senders that
+    // can't set custom headers (some BlueBubbles Server builds). The URL
+    // is redacted before logging — see the req serializer above.
+    const headerToken = (req.headers["x-pebble-token"] ?? "") as string;
+    const q = (req.query ?? {}) as Record<string, unknown>;
+    const queryToken = typeof q.token === "string" ? q.token : "";
+    const got = headerToken || queryToken;
     if (!safeEqual(got, deps.config.ingestSecret)) {
       reply.code(401).send({ error: "unauthorized" });
     }
@@ -306,4 +331,10 @@ function safeEqual(a: string, b: string): boolean {
     mismatch |= a.charCodeAt(i) ^ b.charCodeAt(i);
   }
   return mismatch === 0;
+}
+
+// why: ?token= can carry the ingest secret for senders that can't set
+// custom headers. Strip it from any string that's about to be logged.
+function redactToken(url: string): string {
+  return url.replace(/([?&])token=[^&]*/g, "$1token=***");
 }
