@@ -1,3 +1,4 @@
+import type { AttachmentResolver } from "../adapters/bluebubbles-fetch.js";
 import type { PebbleDB } from "../db/client.js";
 import type { IngestPayload, IngestRecord } from "../types/index.js";
 import { writeIngestion } from "../vault/writer.js";
@@ -14,6 +15,8 @@ export interface IngestPipelineOpts {
   nearDup?: NearDupOptions | null;
   /** Override fetch for remote-attachment materialization (tests). */
   fetchImpl?: typeof fetch;
+  /** Per-scheme attachment resolvers (e.g. bluebubbles://). */
+  attachmentResolvers?: Record<string, AttachmentResolver>;
 }
 
 export interface IngestResult {
@@ -33,6 +36,7 @@ export async function ingest(
   const attachments = await materializeAttachments(payload.attachments, {
     vaultPath: opts.vaultPath,
     ...(opts.fetchImpl ? { fetchImpl: opts.fetchImpl } : {}),
+    ...(opts.attachmentResolvers ? { resolvers: opts.attachmentResolvers } : {}),
   });
   const materialized: IngestPayload =
     attachments.length > 0 ? { ...payload, attachments } : payload;

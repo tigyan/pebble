@@ -40,6 +40,10 @@ npm run dev
 # → http://127.0.0.1:8787
 ```
 
+For a real iMessage source (BlueBubbles Server on a Mac → tunnel → Pebble),
+follow the end-to-end recipe in
+[`docs/DEPLOY-BLUEBUBBLES.md`](./docs/DEPLOY-BLUEBUBBLES.md).
+
 ### Send a message
 
 ```bash
@@ -206,6 +210,15 @@ to Markdown. Filenames are sanitized; size is capped at 32 MiB per file.
 Already-vault-internal paths and URI schemes Pebble doesn't recognize are
 left untouched. **Attachments are never auto-uploaded to model providers** —
 they are referenced by path only. This is a hard invariant.
+
+For BlueBubbles specifically, the webhook only carries metadata (guid,
+mime, filename) — not bytes. When `PEBBLE_BLUEBUBBLES_URL` and the
+companion password (`PEBBLE_BLUEBUBBLES_PASSWORD`, ideally via the
+keychain) are set, Pebble fetches the binary at ingest time through the
+BB Server's `/api/v1/attachment/<guid>/download` endpoint and materializes
+it under `_System/attachments/`. If the URL is unset, attachment URIs
+land as `bluebubbles://attachment/<guid>` placeholders that can be
+resolved later — the markdown stays valid in either case.
 
 ## Embeddings & hybrid search
 

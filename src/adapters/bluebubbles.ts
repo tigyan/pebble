@@ -1,4 +1,5 @@
 import type { IngestionAdapter } from "../types/index.js";
+import { bluebubblesUri } from "./bluebubbles-fetch.js";
 
 /**
  * BlueBubbles webhook adapter.
@@ -44,13 +45,22 @@ export const bluebubblesAdapter: IngestionAdapter = {
         : new Date().toISOString();
 
     const attachments = Array.isArray(d.attachments)
-      ? d.attachments.map((a: any) => ({
-          kind: guessKind(a.mimeType),
-          uri: a.transferName ?? a.guid ?? "unknown",
-          mime: a.mimeType,
-          filename: a.transferName,
-          bytes: a.totalBytes,
-        }))
+      ? d.attachments.flatMap((a: any) => {
+          const guid = typeof a.guid === "string" ? a.guid : null;
+          // The webhook only carries metadata — the binary lives on the
+          // BB Server and is materialized later via the bluebubbles:// resolver.
+          // Without a guid there is nothing to fetch, so skip the row.
+          if (!guid) return [];
+          return [
+            {
+              kind: guessKind(a.mimeType),
+              uri: bluebubblesUri(guid),
+              mime: a.mimeType,
+              filename: a.transferName,
+              bytes: a.totalBytes,
+            },
+          ];
+        })
       : undefined;
 
     return {

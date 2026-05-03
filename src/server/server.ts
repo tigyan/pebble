@@ -1,10 +1,15 @@
 import Fastify, { type FastifyInstance } from "fastify";
 import { z } from "zod";
 import { normalize } from "../adapters/index.js";
+import {
+  type AttachmentResolver,
+  makeBluebubblesAttachmentResolver,
+} from "../adapters/bluebubbles-fetch.js";
 import type { PebbleConfig } from "../config.js";
 import type { PebbleDB } from "../db/client.js";
 import { fileOne } from "../filing/executor.js";
 import { ingest } from "../ingest/pipeline.js";
+import { buildSecretSource } from "../secrets/source.js";
 import {
   EditableSettingsSchema,
   makeSettingsStore,
@@ -32,6 +37,19 @@ export async function buildServer(deps: ServerDeps): Promise<FastifyInstance> {
 
   const effectiveTriageProvider = (): string =>
     settings.get().triage_provider ?? deps.config.triageProvider;
+
+  // Build per-scheme attachment resolvers from config + secrets. We do this
+  // once at boot so the BB password is resolved exactly once and never
+  // captured into per-request closures or log lines.
+  const resolvers: Record<string, AttachmentResolver> = {};
+  if (deps.config.bluebubblesUrl) {
+    const secrets = buildSecretSource(process.env);
+    const password = secrets.get("PEBBLE_BLUEBUBBLES_PASSWORD") ?? "";
+    resolvers["bluebubbles:"] = makeBluebubblesAttachmentResolver({
+      url: deps.config.bluebubblesUrl,
+      password,
+    });
+  }
 
   const app = Fastify({
     logger: { level: process.env.LOG_LEVEL ?? "info" },
@@ -81,6 +99,9 @@ export async function buildServer(deps: ServerDeps): Promise<FastifyInstance> {
         vaultPath: deps.config.vaultPath,
         appendOnly: deps.config.appendOnly,
         db: deps.db,
+        ...(Object.keys(resolvers).length > 0
+          ? { attachmentResolvers: resolvers }
+          : {}),
       });
       reply.code(202).send({
         ok: true,

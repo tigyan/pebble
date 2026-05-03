@@ -113,6 +113,57 @@ describe("materializeAttachments", () => {
     ).rejects.toThrow(/404/);
   });
 
+  it("invokes a custom-scheme resolver and writes its bytes into the vault", async () => {
+    const calls: string[] = [];
+    const out = await materializeAttachments(
+      [
+        {
+          kind: "image",
+          uri: "bluebubbles://attachment/abc",
+          mime: "image/jpeg",
+          filename: "photo.jpg",
+        },
+      ],
+      {
+        vaultPath: vault,
+        resolvers: {
+          "bluebubbles:": async (uri: string) => {
+            calls.push(uri);
+            return { data: Buffer.from("fake-jpeg-bytes"), mime: "image/jpeg" };
+          },
+        },
+      },
+    );
+    expect(calls).toEqual(["bluebubbles://attachment/abc"]);
+    expect(out[0]!.uri.startsWith(path.join("_System", "attachments"))).toBe(true);
+    expect(out[0]!.uri).not.toContain("bluebubbles:");
+    const onDisk = await fs.readFile(path.join(vault, out[0]!.uri), "utf8");
+    expect(onDisk).toBe("fake-jpeg-bytes");
+  });
+
+  it("leaves the URI unchanged when no resolver matches the scheme", async () => {
+    const out = await materializeAttachments(
+      [{ kind: "file", uri: "bluebubbles://attachment/abc" }],
+      { vaultPath: vault },
+    );
+    expect(out[0]!.uri).toBe("bluebubbles://attachment/abc");
+  });
+
+  it("enforces maxBytes for resolver-backed downloads", async () => {
+    await expect(
+      materializeAttachments(
+        [{ kind: "file", uri: "bluebubbles://attachment/big" }],
+        {
+          vaultPath: vault,
+          maxBytes: 4,
+          resolvers: {
+            "bluebubbles:": async () => ({ data: Buffer.alloc(8) }),
+          },
+        },
+      ),
+    ).rejects.toThrow(/exceeds 4 bytes/);
+  });
+
   it("sanitizes filenames to a safe charset", async () => {
     const buf = Buffer.from("x", "utf8");
     const dataUri = "data:text/plain;base64," + buf.toString("base64");

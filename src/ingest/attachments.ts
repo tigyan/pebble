@@ -2,6 +2,7 @@ import { createHash } from "node:crypto";
 import fs from "node:fs/promises";
 import path from "node:path";
 import { nanoid } from "nanoid";
+import type { AttachmentResolver } from "../adapters/bluebubbles-fetch.js";
 import type { Attachment } from "../types/index.js";
 import { VAULT_DIRS } from "../vault/paths.js";
 
@@ -15,6 +16,11 @@ export interface MaterializeOptions {
   maxBytes?: number;
   /** Optional fetch override (for tests). */
   fetchImpl?: typeof fetch;
+  /**
+   * Per-scheme resolvers, e.g. `{ "bluebubbles:": resolver }`. Matched by
+   * URI prefix. The resolver returns the bytes; this module writes them.
+   */
+  resolvers?: Record<string, AttachmentResolver>;
 }
 
 /**
@@ -52,7 +58,27 @@ async function materializeOne(att: Attachment, opts: MaterializeOptions): Promis
   const targetPath = path.join(dir, targetName);
   const maxBytes = opts.maxBytes ?? DEFAULT_MAX_BYTES;
 
+  // Custom-scheme resolver match (e.g. bluebubbles://).
+  const resolverScheme = matchResolverScheme(uri, opts.resolvers);
   let bytes = 0;
+  if (resolverScheme) {
+    const resolver = opts.resolvers![resolverScheme]!;
+    const result = await resolver(uri);
+    if (result.data.byteLength > maxBytes) {
+      throw new Error(`attachment exceeds ${maxBytes} bytes`);
+    }
+    await fs.writeFile(targetPath, result.data);
+    bytes = result.data.byteLength;
+    return {
+      ...att,
+      uri: path.relative(vault, targetPath),
+      filename: att.filename ?? result.filename ?? baseName,
+      ...(att.mime || result.mime
+        ? { mime: att.mime ?? result.mime ?? "application/octet-stream" }
+        : {}),
+      bytes: att.bytes ?? bytes,
+    };
+  }
   if (uri.startsWith("data:")) {
     const buf = decodeDataUri(uri);
     if (buf.byteLength > maxBytes) throw new Error(`attachment exceeds ${maxBytes} bytes`);
@@ -82,6 +108,19 @@ async function materializeOne(att: Attachment, opts: MaterializeOptions): Promis
     filename: att.filename ?? baseName,
     bytes: att.bytes ?? bytes,
   };
+}
+
+function matchResolverScheme(
+  uri: string,
+  resolvers: Record<string, AttachmentResolver> | undefined,
+): string | null {
+  if (!resolvers) return null;
+  for (const scheme of Object.keys(resolvers)) {
+    // Schemes are stored as either "bluebubbles:" or "bluebubbles" — accept both.
+    const prefix = scheme.endsWith(":") ? scheme : `${scheme}:`;
+    if (uri.startsWith(prefix)) return scheme;
+  }
+  return null;
 }
 
 function isInsideVault(uri: string, vault: string): boolean {

@@ -17,6 +17,13 @@ const ConfigSchema = z.object({
     .transform((v) => v === "true"),
   telemetry: z.enum(["off", "on"]).default("off"),
   secretsSource: z.enum(["env", "keychain", "auto"]).default("env"),
+  /**
+   * BlueBubbles Server URL — used to fetch attachment binaries that arrive
+   * via webhook by reference only. Password is resolved separately via
+   * `SecretSource.get("PEBBLE_BLUEBUBBLES_PASSWORD")` so it never enters
+   * the parsed config object (and thus never gets logged).
+   */
+  bluebubblesUrl: z.string().url().or(z.literal("")).default(""),
 });
 
 export type PebbleConfig = z.infer<typeof ConfigSchema>;
@@ -43,5 +50,6 @@ export function loadConfig(
     appendOnly: (env.PEBBLE_APPEND_ONLY ?? "true") as "true" | "false",
     telemetry: env.PEBBLE_TELEMETRY ?? "off",
     secretsSource: (env.PEBBLE_SECRETS_SOURCE ?? "env").toLowerCase(),
+    bluebubblesUrl: env.PEBBLE_BLUEBUBBLES_URL ?? "",
   });
 }

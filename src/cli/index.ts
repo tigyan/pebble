@@ -12,10 +12,12 @@ import { ingest } from "../ingest/pipeline.js";
 import { runTriage } from "../triage/runner.js";
 import { fileAllTriaged } from "../filing/executor.js";
 import { manualAdapter } from "../adapters/manual.js";
+import { pingBluebubbles } from "../adapters/bluebubbles-fetch.js";
 import {
   detectKeychainBackend,
   KEYCHAIN_SERVICE,
 } from "../secrets/keychain.js";
+import { buildSecretSource } from "../secrets/source.js";
 import { buildServer } from "../server/server.js";
 import { IngestPayloadSchema } from "../types/index.js";
 import { makeAgentTools } from "../agent/tools.js";
@@ -301,6 +303,20 @@ program
     }
     if (cfg.ingestSecret.length < 16) {
       issues.push("ingest secret is short (<16 chars) — generate a stronger token");
+    }
+    if (cfg.bluebubblesUrl) {
+      const password =
+        buildSecretSource(process.env).get("PEBBLE_BLUEBUBBLES_PASSWORD") ?? "";
+      const r = await pingBluebubbles({ url: cfg.bluebubblesUrl, password });
+      if (r.ok) {
+        log(`✓ bluebubbles reachable at ${cfg.bluebubblesUrl} (${r.detail})`);
+      } else {
+        issues.push(
+          `bluebubbles: ${cfg.bluebubblesUrl} — ${r.detail}${
+            password ? "" : " (no PEBBLE_BLUEBUBBLES_PASSWORD set)"
+          }`,
+        );
+      }
     }
     if (issues.length) {
       log("");

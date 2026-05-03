@@ -75,6 +75,7 @@ See `README.md`, `ARCHITECTURE.md`, `ROADMAP.md` for the user-facing picture.
 | Types & Zod schemas            | `src/types/index.ts`                          |
 | Config (env → typed config)    | `src/config.ts`                               |
 | Provider adapters              | `src/adapters/{bluebubbles,sendblue,shortcuts,manual}.ts` |
+| BlueBubbles attachment fetcher | `src/adapters/bluebubbles-fetch.ts`           |
 | Adapter selection              | `src/adapters/index.ts`                       |
 | HTTP server                    | `src/server/{server,index}.ts`                |
 | Dashboard HTML (single page)   | `src/server/dashboard.ts`                     |
@@ -115,6 +116,21 @@ See `README.md`, `ARCHITECTURE.md`, `ROADMAP.md` for the user-facing picture.
    (manual is the catch-all and must remain last).
 4. Add a fixture under `tests/fixtures/` and a unit test in
    `tests/unit/adapters.test.ts`.
+
+### Add a new attachment resolver (custom URI scheme)
+
+1. Define a URI helper (`<scheme>://…`) and a function that returns
+   `AttachmentResolver` (see `src/adapters/bluebubbles-fetch.ts` as the
+   reference). The resolver fetches bytes and returns
+   `{ data, filename?, mime? }`.
+2. Wire it into `src/server/server.ts` so the boot path builds the
+   `resolvers` map, keyed by URI scheme prefix (e.g. `bluebubbles:`),
+   and passes it as `attachmentResolvers` to `ingest()`.
+3. Resolve any required secret (server password, API key) via
+   `SecretSource.get(...)` — never read raw `process.env` and never log
+   the value. Materialized files land under `_System/attachments/`; the
+   note references the vault-relative path, so it works offline after
+   ingest.
 
 ### Add a new AI triage provider
 

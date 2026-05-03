@@ -106,6 +106,28 @@
       and flags drift. Migrations are append-only — never edit a shipped
       one. v1 ships with zero migrations registered (baseline only).
 
+## Sprint 5 — real-world readiness
+
+- [x] BlueBubbles attachment fetching. `src/adapters/bluebubbles-fetch.ts`
+      defines a `bluebubbles://attachment/<guid>` URI scheme, a typed
+      `AttachmentResolver` interface, and `makeBluebubblesAttachmentResolver`
+      that hits the BB Server's
+      `/api/v1/attachment/<guid>/download?password=…` endpoint. The
+      resolver is plumbed through `materializeAttachments` (new `resolvers`
+      map keyed by URI scheme) and `ingest()` so that webhook payloads
+      land in the vault with the binary materialized to
+      `_System/attachments/`. The BB password is resolved once at server
+      boot via `SecretSource` and never written to disk or to Markdown.
+- [x] `pebble doctor` BlueBubbles ping. When `PEBBLE_BLUEBUBBLES_URL` is
+      set, `doctor` calls `pingBluebubbles()` (`/api/v1/ping`) and reports
+      reachability + auth status alongside the existing schema-version /
+      vault-layout checks.
+- [x] Deploy guide for self-hosters: `docs/DEPLOY-BLUEBUBBLES.md`.
+      End-to-end recipe from "install BB Server on a Mac" through webhook
+      configuration, tunnel options (Tailscale / Cloudflare / ngrok),
+      OS-keychain secret seeding, attachment behavior, a `launchd` plist
+      template, and a troubleshooting table. Linked from `README.md`.
+
 ---
 
 ## Known limitations & open questions
