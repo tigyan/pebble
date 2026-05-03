@@ -443,12 +443,12 @@ async function renderSettings() {
   }
   const fSenders = h("textarea", {
     rows: "3",
-    placeholder: "+NUMBER\nfriend@example.com\n(one per line)",
+    placeholder: "+<number>\nfriend@example.com\n(one per line)",
     style: "width:100%;font-family:ui-monospace,monospace;font-size:12px",
   }, (f.senders || []).join("\n"));
   const fThreads = h("textarea", {
     rows: "3",
-    placeholder: "iMessage;-;+NUMBER\nchat-guid-...\n(one per line)",
+    placeholder: "iMessage;-;+<number>\nchat-guid-...\n(one per line)",
     style: "width:100%;font-family:ui-monospace,monospace;font-size:12px",
   }, (f.threads || []).join("\n"));
 
@@ -550,7 +550,7 @@ async function renderSettings() {
       "Restrict which senders or threads Pebble will ingest. ",
       h("b", {}, "off"), ": accept everything (default). ",
       h("b", {}, "allowlist"), ": accept only the entries below — ⚠ empty allowlist blocks everything. ",
-      h("b", {}, "denylist"), ": accept everything except the entries below. Match is exact against the canonical sender (e.g. ", h("code", {}, "+NUMBER"), ") or thread_id.",
+      h("b", {}, "denylist"), ": accept everything except the entries below. Match is exact against the canonical sender (e.g. ", h("code", {}, "+<number>"), ") or thread_id.",
     ),
     h("div", { class: "kv" },
       h("div", { class: "k" }, "mode"), h("div", {}, fMode),

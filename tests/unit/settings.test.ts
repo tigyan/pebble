@@ -58,9 +58,9 @@ describe("evaluateIngestFilter", () => {
     it("allows when sender matches", () => {
       expect(
         evaluateIngestFilter(
-          { mode: "allowlist", senders: ["+NUMBER"], threads: [] },
-          "+NUMBER",
-          "iMessage;-;+NUMBER",
+          { mode: "allowlist", senders: ["+15550001111"], threads: [] },
+          "+15550001111",
+          "iMessage;-;+15550001111",
         ),
       ).toEqual({ allow: true });
     });
