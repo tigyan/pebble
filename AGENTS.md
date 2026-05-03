@@ -39,9 +39,12 @@ See `README.md`, `ARCHITECTURE.md`, `ROADMAP.md` for the user-facing picture.
    `agent_actions` SQLite table. `dryRun` must be honored.
 6. **No telemetry.** Pebble sends nothing outbound except to the configured
    AI provider. Do not add analytics, error reporting, or usage pings.
-7. **Secrets stay in `.env`.** `PEBBLE_INGEST_SECRET`, API keys, etc. — never
-   commit, never log, never echo into Markdown. The `/ingest` token compare
-   is constant-time; keep it that way.
+7. **Secrets stay in `.env` or the OS keychain.** `PEBBLE_INGEST_SECRET`,
+   API keys, etc. — never commit, never log, never echo into Markdown. The
+   `/ingest` token compare is constant-time; keep it that way. Resolution
+   order is controlled by `PEBBLE_SECRETS_SOURCE` (`env` | `keychain` |
+   `auto`) and goes through `SecretSource` in `src/secrets/source.ts` —
+   never read API keys via raw `process.env` outside that path.
 8. **Path safety.** Agent-supplied paths are resolved relative to
    `vaultPath` and rejected if they escape it. See `safePath()` in
    `src/agent/tools.ts`.
@@ -78,7 +81,7 @@ See `README.md`, `ARCHITECTURE.md`, `ROADMAP.md` for the user-facing picture.
 | Ingestion pipeline             | `src/ingest/pipeline.ts`                      |
 | Vault writer (append-only)     | `src/vault/writer.ts`                         |
 | Vault paths / frontmatter      | `src/vault/{paths,frontmatter}.ts`            |
-| SQLite client + schema         | `src/db/{client,schema}.ts`                   |
+| SQLite client + schema         | `src/db/{client,schema,migrations}.ts`        |
 | Vault indexer                  | `src/indexer/index.ts`                        |
 | Triage classifier (interface)  | `src/triage/classifier.ts`                    |
 | Triage prompt + JSON extraction| `src/triage/prompt.ts`                        |
@@ -89,6 +92,7 @@ See `README.md`, `ARCHITECTURE.md`, `ROADMAP.md` for the user-facing picture.
 | Attachment materializer        | `src/ingest/attachments.ts`                   |
 | Filing executor (typed-home)   | `src/filing/executor.ts`                      |
 | Settings overlay (file → env)  | `src/settings/store.ts`                       |
+| Secrets backend (env / keychain) | `src/secrets/{source,keychain}.ts`          |
 | Embedding providers + helpers  | `src/embeddings/provider.ts`                  |
 | Embedding runner (vault → DB)  | `src/embeddings/runner.ts`                    |
 | Hybrid FTS+vector search       | `src/embeddings/search.ts`                    |
@@ -129,10 +133,17 @@ See `README.md`, `ARCHITECTURE.md`, `ROADMAP.md` for the user-facing picture.
 
 ### Change the SQLite schema
 
-1. Edit `src/db/schema.ts` (the inline `SCHEMA_SQL` string).
-2. Edit `src/db/schema.sql` to keep the reference copy in sync.
-3. The MVP relies on `CREATE TABLE IF NOT EXISTS` — for breaking changes,
-   add a migration step and document the recovery path in `ROADMAP.md`.
+1. Edit `src/db/schema.ts` (the inline `SCHEMA_SQL` string) — additive only,
+   so a fresh DB lands on the latest shape directly.
+2. Mirror the change in `src/db/schema.sql` (reference copy).
+3. Append a `Migration` to `MIGRATIONS` in `src/db/migrations.ts` with the
+   next `version` number. The runner applies pending migrations in a single
+   transaction and bumps `PRAGMA user_version`. **Never edit a past migration
+   once shipped** — append a new one instead.
+4. Add a unit test in `tests/unit/migrations.test.ts` covering the new
+   migration's effect on a pre-migration DB shape.
+5. `pebble doctor` reports the DB's current version vs. `currentSchemaVersion()`
+   and flags drift.
 
 ## Build / test commands
 

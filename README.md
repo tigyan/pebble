@@ -319,7 +319,15 @@ Every tool call is:
 
 - The vault is treated as private personal knowledge.
 - **No telemetry.** Pebble itself sends nothing outbound except to the provider you configure.
-- API keys are loaded from `.env` (never committed) — keychain integration is on the roadmap.
+- Secrets resolve through `SecretSource` (`src/secrets/source.ts`).
+  `PEBBLE_SECRETS_SOURCE` controls precedence: `env` (default) reads only
+  `.env` / `process.env`; `keychain` reads only the OS keychain
+  (macOS Keychain via `security`, Linux libsecret via `secret-tool`);
+  `auto` tries the keychain first and falls back to env. Seed values with
+  `pebble secrets set <KEY>` (reads stdin so the value never appears on
+  the command line). `pebble secrets get <KEY>` confirms presence; pass
+  `--show` to print the value. Service name is `pebble`; account is the
+  env-var key (e.g. `PEBBLE_INGEST_SECRET`, `PEBBLE_ANTHROPIC_API_KEY`).
 - `/ingest` requires `X-Pebble-Token` matching `PEBBLE_INGEST_SECRET` (constant-time compare).
 - Attachments are referenced by URI/local path; large blobs are not auto-sent to models.
 - Vault writes are append-only by default; any non-append edit goes through

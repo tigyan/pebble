@@ -74,10 +74,28 @@
 
 ## Sprint 4 — hardening
 
-- [ ] OS keychain integration for secrets (macOS Keychain, Linux libsecret).
+- [x] OS keychain integration for secrets (macOS Keychain, Linux libsecret).
+      `src/secrets/{keychain,source}.ts` add a `SecretSource` abstraction with
+      `env`, `keychain`, and `auto` modes (controlled by
+      `PEBBLE_SECRETS_SOURCE`). The macOS backend shells out to `security`
+      and the Linux backend to `secret-tool`. `loadConfig` resolves
+      `PEBBLE_INGEST_SECRET` via the source; `getProvider` /
+      `getEmbeddingProvider` resolve API keys the same way. CLI:
+      `pebble secrets set|get|unset <KEY>` (set reads from stdin; get prints
+      only with `--show`).
 - [ ] Optional cloud sync of `_System/` JSONL logs (encrypted).
-- [ ] CI: typecheck + tests + adapter contract tests on every PR.
-- [ ] Schema migrations (`drizzle-kit` or hand-rolled).
+- [x] CI: typecheck + tests + adapter contract tests on every PR.
+      `.github/workflows/ci.yml` runs on push-to-main and PRs to main:
+      `npm ci`, `npm run typecheck`, `npm test` on Ubuntu / Node 22.
+      `tests/unit/adapter-contract.test.ts` enforces invariants for every
+      registered adapter (unique name, manual-is-last, schema-valid output,
+      no cross-fixture false positives).
+- [x] Schema migrations (hand-rolled, no extra deps).
+      `src/db/migrations.ts` runs the baseline schema (idempotent) plus any
+      pending `Migration` entries in a single transaction, tracking version
+      via `PRAGMA user_version`. `pebble doctor` surfaces the DB version
+      and flags drift. Migrations are append-only — never edit a shipped
+      one. v1 ships with zero migrations registered (baseline only).
 
 ---
 

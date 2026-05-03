@@ -4,6 +4,7 @@ import {
   type TriageResult,
   TriageResultSchema,
 } from "../types/index.js";
+import { buildSecretSource, type SecretSource } from "../secrets/source.js";
 import { makeAnthropicProvider, makeOpenAIProvider } from "./api-provider.js";
 import { makeCliProvider } from "./cli-provider.js";
 
@@ -45,6 +46,7 @@ export const mockTriageProvider: TriageProvider = {
 export function getProvider(
   name: string,
   env: NodeJS.ProcessEnv = process.env,
+  secrets: SecretSource = buildSecretSource(env),
 ): TriageProvider {
   switch (name) {
     case "mock":
@@ -83,7 +85,7 @@ export function getProvider(
     }
 
     case "anthropic": {
-      const apiKey = env.PEBBLE_ANTHROPIC_API_KEY ?? "";
+      const apiKey = secrets.get("PEBBLE_ANTHROPIC_API_KEY") ?? "";
       if (!apiKey) {
         throw new Error(
           "triage provider \"anthropic\" requires PEBBLE_ANTHROPIC_API_KEY. " +
@@ -97,7 +99,7 @@ export function getProvider(
     }
 
     case "openai": {
-      const apiKey = env.PEBBLE_OPENAI_API_KEY ?? "";
+      const apiKey = secrets.get("PEBBLE_OPENAI_API_KEY") ?? "";
       if (!apiKey) {
         throw new Error(
           "triage provider \"openai\" requires PEBBLE_OPENAI_API_KEY. " +

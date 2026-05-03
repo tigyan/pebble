@@ -1,5 +1,6 @@
 import path from "node:path";
 import { z } from "zod";
+import { buildSecretSource, type SecretSource } from "./secrets/source.js";
 
 const ConfigSchema = z.object({
   vaultPath: z.string().min(1, "PEBBLE_VAULT_PATH is required"),
@@ -15,11 +16,15 @@ const ConfigSchema = z.object({
     .default("true")
     .transform((v) => v === "true"),
   telemetry: z.enum(["off", "on"]).default("off"),
+  secretsSource: z.enum(["env", "keychain", "auto"]).default("env"),
 });
 
 export type PebbleConfig = z.infer<typeof ConfigSchema>;
 
-export function loadConfig(env: NodeJS.ProcessEnv = process.env): PebbleConfig {
+export function loadConfig(
+  env: NodeJS.ProcessEnv = process.env,
+  secrets: SecretSource = buildSecretSource(env),
+): PebbleConfig {
   const vaultPath = env.PEBBLE_VAULT_PATH ?? "";
   const defaultDb = vaultPath
     ? path.join(vaultPath, "_System", "pebble.sqlite")
@@ -27,11 +32,16 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): PebbleConfig {
   return ConfigSchema.parse({
     vaultPath,
     dbPath: env.PEBBLE_DB_PATH || defaultDb,
-    ingestSecret: env.PEBBLE_INGEST_SECRET ?? "",
+    // ingestSecret is the one core secret resolved via SecretSource so
+    // users on PEBBLE_SECRETS_SOURCE=auto get keychain-first lookup.
+    // API keys (Anthropic/OpenAI) are read via the same source where they
+    // are consumed (see triage/api-provider).
+    ingestSecret: secrets.get("PEBBLE_INGEST_SECRET") ?? "",
     host: env.PEBBLE_HOST ?? "127.0.0.1",
     port: env.PEBBLE_PORT ?? "8787",
     triageProvider: env.PEBBLE_TRIAGE_PROVIDER ?? "mock",
     appendOnly: (env.PEBBLE_APPEND_ONLY ?? "true") as "true" | "false",
     telemetry: env.PEBBLE_TELEMETRY ?? "off",
+    secretsSource: (env.PEBBLE_SECRETS_SOURCE ?? "env").toLowerCase(),
   });
 }

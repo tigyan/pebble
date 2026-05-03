@@ -1,5 +1,10 @@
 -- Pebble local state. Authoritative data lives in the vault; this DB is a cache
 -- for fast querying and an append-only log of agent actions.
+--
+-- This file is a reference mirror of `src/db/schema.ts` (the inline string used
+-- at runtime). Versioned migrations live in `src/db/migrations.ts` and are
+-- tracked via `PRAGMA user_version`. When you change the baseline here, also
+-- mirror it in schema.ts and append a migration so existing DBs catch up.
 
 PRAGMA journal_mode = WAL;
 PRAGMA foreign_keys = ON;

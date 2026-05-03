@@ -1,3 +1,5 @@
+import { buildSecretSource, type SecretSource } from "../secrets/source.js";
+
 /**
  * EmbeddingProvider — same shape as TriageProvider, scoped to vector embeddings.
  * Implementations re-validate their output (length === dim) before returning.
@@ -19,12 +21,14 @@ export type EmbeddingProviderName = (typeof EMBEDDING_PROVIDERS)[number];
 export function getEmbeddingProvider(
   name: string,
   env: NodeJS.ProcessEnv = process.env,
+  secrets: SecretSource = buildSecretSource(env),
 ): EmbeddingProvider {
   switch (name) {
     case "mock":
       return makeMockEmbeddingProvider();
     case "openai": {
-      const apiKey = env.PEBBLE_OPENAI_API_KEY ?? env.OPENAI_API_KEY ?? "";
+      const apiKey =
+        secrets.get("PEBBLE_OPENAI_API_KEY") ?? secrets.get("OPENAI_API_KEY") ?? "";
       const model = env.PEBBLE_OPENAI_EMBEDDING_MODEL ?? "text-embedding-3-small";
       const baseUrl = env.PEBBLE_OPENAI_BASE_URL ?? "https://api.openai.com";
       return makeOpenAIEmbeddingProvider({ apiKey, model, baseUrl });

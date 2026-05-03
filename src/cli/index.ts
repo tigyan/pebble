@@ -4,6 +4,7 @@ import path from "node:path";
 import { Command } from "commander";
 import { loadConfig } from "../config.js";
 import { openDB } from "../db/client.js";
+import { currentSchemaVersion } from "../db/migrations.js";
 import { embedAllNotes } from "../embeddings/runner.js";
 import { getEmbeddingProvider } from "../embeddings/provider.js";
 import { indexVault } from "../indexer/index.js";
@@ -11,6 +12,10 @@ import { ingest } from "../ingest/pipeline.js";
 import { runTriage } from "../triage/runner.js";
 import { fileAllTriaged } from "../filing/executor.js";
 import { manualAdapter } from "../adapters/manual.js";
+import {
+  detectKeychainBackend,
+  KEYCHAIN_SERVICE,
+} from "../secrets/keychain.js";
 import { buildServer } from "../server/server.js";
 import { IngestPayloadSchema } from "../types/index.js";
 import { makeAgentTools } from "../agent/tools.js";
@@ -282,7 +287,14 @@ program
     try {
       const db = openDB(cfg.dbPath);
       const v = db.raw.prepare("SELECT sqlite_version() AS v").get() as { v: string };
-      log(`✓ sqlite ${v.v} at ${cfg.dbPath}`);
+      const expected = currentSchemaVersion();
+      const actual = db.schemaVersion();
+      log(`✓ sqlite ${v.v} at ${cfg.dbPath} (schema v${actual} / latest v${expected})`);
+      if (actual !== expected) {
+        issues.push(
+          `schema version drift: db=${actual}, expected=${expected} — re-open the DB or run \`pebble index\` to apply migrations`,
+        );
+      }
       db.close();
     } catch (err) {
       issues.push(`db: ${(err as Error).message}`);
@@ -298,6 +310,68 @@ program
     log("✓ all checks passed");
   });
 
+const secrets = program
+  .command("secrets")
+  .description("Manage secrets in the OS keychain (macOS/Linux)");
+
+secrets
+  .command("set")
+  .description("Store a secret in the OS keychain (read from stdin)")
+  .argument("<key>", "Env-var-style key, e.g. PEBBLE_INGEST_SECRET")
+  .option("--value <value>", "Pass value on the command line (avoid; prefer stdin)")
+  .action(async (key: string, opts: { value?: string }) => {
+    const backend = detectKeychainBackend();
+    if (!backend.available()) {
+      log(`✗ keychain backend "${backend.name}" not available on this system`);
+      process.exit(1);
+    }
+    const value = opts.value ?? (await readStdin());
+    if (!value) {
+      log("✗ no value provided (pipe via stdin or pass --value)");
+      process.exit(1);
+    }
+    backend.set(KEYCHAIN_SERVICE, key, value);
+    log(`✓ stored ${key} in ${backend.name} (service=${KEYCHAIN_SERVICE})`);
+  });
+
+secrets
+  .command("get")
+  .description("Read a secret from the OS keychain (prints to stdout)")
+  .argument("<key>", "Env-var-style key, e.g. PEBBLE_INGEST_SECRET")
+  .option("--show", "Print the secret value (otherwise only confirms presence)")
+  .action((key: string, opts: { show?: boolean }) => {
+    const backend = detectKeychainBackend();
+    if (!backend.available()) {
+      log(`✗ keychain backend "${backend.name}" not available on this system`);
+      process.exit(1);
+    }
+    const v = backend.get(KEYCHAIN_SERVICE, key);
+    if (v == null) {
+      log(`✗ ${key} not found in ${backend.name}`);
+      process.exit(1);
+    }
+    if (opts.show) {
+      // eslint-disable-next-line no-console
+      process.stdout.write(v);
+    } else {
+      log(`✓ ${key} present in ${backend.name} (length=${v.length})`);
+    }
+  });
+
+secrets
+  .command("unset")
+  .description("Remove a secret from the OS keychain")
+  .argument("<key>", "Env-var-style key, e.g. PEBBLE_INGEST_SECRET")
+  .action((key: string) => {
+    const backend = detectKeychainBackend();
+    if (!backend.available()) {
+      log(`✗ keychain backend "${backend.name}" not available on this system`);
+      process.exit(1);
+    }
+    backend.unset(KEYCHAIN_SERVICE, key);
+    log(`✓ removed ${key} from ${backend.name}`);
+  });
+
 program.parseAsync().catch((err) => {
   // eslint-disable-next-line no-console
   console.error(err);
@@ -311,4 +385,11 @@ function log(msg: string): void {
 function preview(s: string): string {
   const t = s.replace(/\s+/g, " ").trim();
   return t.length <= 60 ? t : t.slice(0, 57) + "…";
+}
+
+async function readStdin(): Promise<string> {
+  if (process.stdin.isTTY) return "";
+  const chunks: Buffer[] = [];
+  for await (const c of process.stdin) chunks.push(c as Buffer);
+  return Buffer.concat(chunks).toString("utf8").replace(/\r?\n$/, "");
 }

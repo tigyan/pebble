@@ -7,7 +7,7 @@ import type {
   IngestStatus,
   TriageResult,
 } from "../types/index.js";
-import { SCHEMA_SQL } from "./schema.js";
+import { getDbVersion, runMigrations } from "./migrations.js";
 
 export interface PebbleDB {
   raw: Database.Database;
@@ -55,13 +55,14 @@ export interface PebbleDB {
   countEmbeddings(model: string): number;
   getBudgetUsage(day: string, model: string): { calls: number; tokens: number };
   incrementBudget(args: { day: string; model: string; calls: number; tokens: number }): void;
+  schemaVersion(): number;
   close(): void;
 }
 
 export function openDB(dbPath: string): PebbleDB {
   fs.mkdirSync(path.dirname(dbPath), { recursive: true });
   const db = new Database(dbPath);
-  db.exec(SCHEMA_SQL);
+  runMigrations(db);
 
   const stmts = {
     insertIngestion: db.prepare(`
@@ -295,6 +296,9 @@ export function openDB(dbPath: string): PebbleDB {
     },
     incrementBudget({ day, model, calls, tokens }) {
       stmts.incrementBudget.run({ day, model, calls, tokens });
+    },
+    schemaVersion() {
+      return getDbVersion(db);
     },
     close() {
       db.close();
