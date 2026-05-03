@@ -433,6 +433,25 @@ async function renderSettings() {
   let agentSnapshot = null;
   try { agentSnapshot = await api("/api/agent"); } catch {}
 
+  // Ingest filter — accept-from / block-from
+  const f = settings.ingest_filter || {};
+  const fMode = h("select", {});
+  for (const m of ["off", "allowlist", "denylist"]) {
+    const opt = h("option", { value: m }, m);
+    if ((f.mode || "off") === m) opt.selected = true;
+    fMode.append(opt);
+  }
+  const fSenders = h("textarea", {
+    rows: "3",
+    placeholder: "+NUMBER\nfriend@example.com\n(one per line)",
+    style: "width:100%;font-family:ui-monospace,monospace;font-size:12px",
+  }, (f.senders || []).join("\n"));
+  const fThreads = h("textarea", {
+    rows: "3",
+    placeholder: "iMessage;-;+NUMBER\nchat-guid-...\n(one per line)",
+    style: "width:100%;font-family:ui-monospace,monospace;font-size:12px",
+  }, (f.threads || []).join("\n"));
+
   const saveBtn = h("button", { class: "primary" }, "Save settings");
   saveBtn.addEventListener("click", async () => {
     const default_folders = {};
@@ -451,10 +470,16 @@ async function renderSettings() {
       rate_limit_per_min: Math.max(0, Number(aRate.value || 0)),
       burst: Math.max(1, Number(aBurst.value || 5)),
     };
+    const splitLines = (s) => s.split("\n").map((x) => x.trim()).filter(Boolean);
+    const ingest_filter = {
+      mode: fMode.value,
+      senders: splitLines(fSenders.value),
+      threads: splitLines(fThreads.value),
+    };
     try {
       await api("/api/settings", {
         method: "PUT",
-        body: { triage_provider: provider.value, default_folders, worker, agent },
+        body: { triage_provider: provider.value, default_folders, worker, agent, ingest_filter },
       });
       toast("Settings saved");
     } catch (e) { toast(e.message, "err"); }
@@ -519,6 +544,18 @@ async function renderSettings() {
       h("div", { class: "k" }, "rate per minute"), h("div", {}, aRate),
       h("div", { class: "k" }, "burst"), h("div", {}, aBurst),
       h("div", { class: "k" }, "today"), h("div", { style: "color:var(--muted);font-size:12px" }, aStatusLine),
+    ),
+    h("h2", { style: "margin-top:24px" }, "Ingest filter (contacts / threads)"),
+    h("p", { style: "color:var(--muted);margin:0 0 8px" },
+      "Restrict which senders or threads Pebble will ingest. ",
+      h("b", {}, "off"), ": accept everything (default). ",
+      h("b", {}, "allowlist"), ": accept only the entries below — ⚠ empty allowlist blocks everything. ",
+      h("b", {}, "denylist"), ": accept everything except the entries below. Match is exact against the canonical sender (e.g. ", h("code", {}, "+NUMBER"), ") or thread_id.",
+    ),
+    h("div", { class: "kv" },
+      h("div", { class: "k" }, "mode"), h("div", {}, fMode),
+      h("div", { class: "k" }, "senders"), h("div", {}, fSenders),
+      h("div", { class: "k" }, "threads"), h("div", {}, fThreads),
     ),
     h("h2", { style: "margin-top:24px" }, "Bookmarklet"),
     h("p", { style: "color:var(--muted);margin:0 0 8px" },

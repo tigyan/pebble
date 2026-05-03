@@ -173,4 +173,82 @@ describe("integration: webhook → inbox → triage → suggested filing", () =>
     expect(body.near_duplicate_of!.id).toBe(firstId);
     expect(body.near_duplicate_of!.score).toBeGreaterThanOrEqual(0.6);
   });
+
+  describe("ingest_filter", () => {
+    const auth = { "x-pebble-token": SECRET };
+
+    async function putSettings(body: unknown) {
+      const res = await app.inject({
+        method: "PUT",
+        url: "/api/settings",
+        headers: { ...auth, "content-type": "application/json" },
+        payload: body,
+      });
+      expect(res.statusCode).toBe(200);
+    }
+
+    async function postIngest(sender: string, threadId: string, text = "hi") {
+      return app.inject({
+        method: "POST",
+        url: "/ingest",
+        headers: auth,
+        payload: { source: "manual", sender, thread_id: threadId, text },
+      });
+    }
+
+    it("allowlist: blocks non-listed sender with reason=not_in_allowlist", async () => {
+      await putSettings({
+        ingest_filter: { mode: "allowlist", senders: ["+1friend"], threads: [] },
+      });
+      const res = await postIngest("+2stranger", "t-stranger");
+      expect(res.statusCode).toBe(202);
+      const body = res.json() as { filtered?: boolean; reason?: string; id?: string };
+      expect(body.filtered).toBe(true);
+      expect(body.reason).toBe("not_in_allowlist");
+      expect(body.id).toBeUndefined();
+    });
+
+    it("allowlist: lets a matching sender through and writes to the vault", async () => {
+      await putSettings({
+        ingest_filter: { mode: "allowlist", senders: ["+1friend"], threads: [] },
+      });
+      const res = await postIngest("+1friend", "t-friend", "hello from friend");
+      expect(res.statusCode).toBe(202);
+      const body = res.json() as { ok: boolean; id?: string; filtered?: boolean };
+      expect(body.filtered).toBeUndefined();
+      expect(body.id).toBeDefined();
+    });
+
+    it("denylist: blocks listed thread_id with reason=denylist", async () => {
+      await putSettings({
+        ingest_filter: { mode: "denylist", senders: [], threads: ["bad-thread"] },
+      });
+      const res = await postIngest("anyone", "bad-thread");
+      expect(res.statusCode).toBe(202);
+      const body = res.json() as { filtered?: boolean; reason?: string };
+      expect(body.filtered).toBe(true);
+      expect(body.reason).toBe("denylist");
+    });
+
+    it("denylist: lets unrelated senders through", async () => {
+      await putSettings({
+        ingest_filter: { mode: "denylist", senders: ["spam"], threads: [] },
+      });
+      const res = await postIngest("friend", "t-good", "ok");
+      expect(res.statusCode).toBe(202);
+      const body = res.json() as { id?: string; filtered?: boolean };
+      expect(body.filtered).toBeUndefined();
+      expect(body.id).toBeDefined();
+    });
+
+    it("PUT /api/settings rejects an unknown filter mode", async () => {
+      const res = await app.inject({
+        method: "PUT",
+        url: "/api/settings",
+        headers: { ...auth, "content-type": "application/json" },
+        payload: { ingest_filter: { mode: "weird" } },
+      });
+      expect(res.statusCode).toBe(400);
+    });
+  });
 });

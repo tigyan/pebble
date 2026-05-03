@@ -41,12 +41,29 @@ export const AgentSettingsSchema = z
 export type AgentSettings = z.infer<typeof AgentSettingsSchema>;
 export const DEFAULT_AGENT_SETTINGS: AgentSettings = AgentSettingsSchema.parse({});
 
+export const INGEST_FILTER_MODES = ["off", "allowlist", "denylist"] as const;
+export const IngestFilterModeSchema = z.enum(INGEST_FILTER_MODES);
+export type IngestFilterMode = z.infer<typeof IngestFilterModeSchema>;
+
+export const IngestFilterSettingsSchema = z
+  .object({
+    mode: IngestFilterModeSchema.default("off"),
+    /** Sender identifiers (handle / email / phone) — exact match against IngestPayload.sender. */
+    senders: z.array(z.string().min(1)).default([]),
+    /** Thread IDs (e.g. BlueBubbles chat guid) — exact match against IngestPayload.thread_id. */
+    threads: z.array(z.string().min(1)).default([]),
+  })
+  .strict();
+export type IngestFilterSettings = z.infer<typeof IngestFilterSettingsSchema>;
+export const DEFAULT_INGEST_FILTER: IngestFilterSettings = IngestFilterSettingsSchema.parse({});
+
 export const EditableSettingsSchema = z
   .object({
     triage_provider: TriageProviderNameSchema.optional(),
     default_folders: z.record(NoteTypeSchema, z.string().min(1)).optional(),
     worker: WorkerSettingsSchema.partial().optional(),
     agent: AgentSettingsSchema.partial().optional(),
+    ingest_filter: IngestFilterSettingsSchema.partial().optional(),
   })
   .strict();
 export type EditableSettings = z.infer<typeof EditableSettingsSchema>;
@@ -107,6 +124,9 @@ function mergeSettings(base: EditableSettings, patch: EditableSettings): Editabl
   if (patch.agent !== undefined) {
     out.agent = { ...(base.agent ?? {}), ...patch.agent };
   }
+  if (patch.ingest_filter !== undefined) {
+    out.ingest_filter = { ...(base.ingest_filter ?? {}), ...patch.ingest_filter };
+  }
   return EditableSettingsSchema.parse(out);
 }
 
@@ -130,4 +150,42 @@ export function effectiveAgentSettings(s: EditableSettings): AgentSettings {
   if (patch.burst !== undefined) out.burst = patch.burst;
   if (patch.triage_model !== undefined) out.triage_model = patch.triage_model;
   return out;
+}
+
+/** Ingest-filter config with all defaults filled in. */
+export function effectiveIngestFilter(s: EditableSettings): IngestFilterSettings {
+  const out: IngestFilterSettings = {
+    mode: DEFAULT_INGEST_FILTER.mode,
+    senders: [...DEFAULT_INGEST_FILTER.senders],
+    threads: [...DEFAULT_INGEST_FILTER.threads],
+  };
+  const patch = s.ingest_filter ?? {};
+  if (patch.mode !== undefined) out.mode = patch.mode;
+  if (patch.senders !== undefined) out.senders = patch.senders;
+  if (patch.threads !== undefined) out.threads = patch.threads;
+  return out;
+}
+
+export type IngestFilterDecision =
+  | { allow: true }
+  | { allow: false; reason: "denylist" | "not_in_allowlist" };
+
+/**
+ * Evaluate whether an `(sender, thread_id)` pair should be ingested under the
+ * current filter settings. Pure function; safe to call from server, worker,
+ * tests.
+ */
+export function evaluateIngestFilter(
+  filter: IngestFilterSettings,
+  sender: string,
+  threadId: string,
+): IngestFilterDecision {
+  if (filter.mode === "off") return { allow: true };
+  const matches =
+    filter.senders.includes(sender) || filter.threads.includes(threadId);
+  if (filter.mode === "allowlist") {
+    return matches ? { allow: true } : { allow: false, reason: "not_in_allowlist" };
+  }
+  // denylist
+  return matches ? { allow: false, reason: "denylist" } : { allow: true };
 }

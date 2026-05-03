@@ -12,6 +12,8 @@ import { ingest } from "../ingest/pipeline.js";
 import { buildSecretSource } from "../secrets/source.js";
 import {
   EditableSettingsSchema,
+  effectiveIngestFilter,
+  evaluateIngestFilter,
   makeSettingsStore,
   type SettingsStore,
 } from "../settings/store.js";
@@ -120,6 +122,24 @@ export async function buildServer(deps: ServerDeps): Promise<FastifyInstance> {
         req.headers as Record<string, string | string[] | undefined>,
         req.body,
       );
+      // why: contact-level filter runs *after* normalize so it sees canonical
+      // sender/thread_id and works for every adapter without bespoke logic.
+      // We re-read settings each request so dashboard edits apply immediately.
+      const filter = effectiveIngestFilter(settings.get());
+      const decision = evaluateIngestFilter(filter, payload.sender, payload.thread_id);
+      if (!decision.allow) {
+        req.log.info(
+          { sender: payload.sender, thread: payload.thread_id, reason: decision.reason },
+          "ingest filtered",
+        );
+        reply.code(202).send({
+          ok: true,
+          adapter,
+          filtered: true,
+          reason: decision.reason,
+        });
+        return;
+      }
       const { record, duplicate, near_duplicate } = await ingest(payload, {
         vaultPath: deps.config.vaultPath,
         appendOnly: deps.config.appendOnly,
