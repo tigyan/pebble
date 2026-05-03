@@ -174,6 +174,38 @@ describe("integration: webhook → inbox → triage → suggested filing", () =>
     expect(body.near_duplicate_of!.score).toBeGreaterThanOrEqual(0.6);
   });
 
+  it("suppresses an echo (same sender/thread/text within window) without re-writing", async () => {
+    const auth = { "x-pebble-token": SECRET };
+    const payload = {
+      source: "imessage",
+      sender: "+15550001111",
+      thread_id: "iMessage;-;+15550001111",
+      text: "hello echo",
+    };
+
+    const first = await app.inject({ method: "POST", url: "/ingest", headers: auth, payload });
+    expect(first.statusCode).toBe(202);
+    const firstBody = first.json() as { id: string; skipped?: boolean };
+    expect(firstBody.skipped).toBeUndefined();
+
+    const second = await app.inject({ method: "POST", url: "/ingest", headers: auth, payload });
+    expect(second.statusCode).toBe(202);
+    const secondBody = second.json() as {
+      id: string;
+      skipped?: boolean;
+      duplicate_of: string | null;
+    };
+    expect(secondBody.skipped).toBe(true);
+    expect(secondBody.id).toBe(firstBody.id);
+    expect(secondBody.duplicate_of).toBe(firstBody.id);
+
+    // Vault-side: only one entry made it into the ingestion log.
+    const logPath = path.join(vault, "_System", "ingestion-log.jsonl");
+    const log = await fs.readFile(logPath, "utf8");
+    const entries = log.split("\n").filter(Boolean);
+    expect(entries).toHaveLength(1);
+  });
+
   describe("ingest_filter", () => {
     const auth = { "x-pebble-token": SECRET };
 

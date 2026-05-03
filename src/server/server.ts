@@ -140,7 +140,7 @@ export async function buildServer(deps: ServerDeps): Promise<FastifyInstance> {
         });
         return;
       }
-      const { record, duplicate, near_duplicate } = await ingest(payload, {
+      const { record, duplicate, near_duplicate, skipped } = await ingest(payload, {
         vaultPath: deps.config.vaultPath,
         appendOnly: deps.config.appendOnly,
         db: deps.db,
@@ -148,12 +148,19 @@ export async function buildServer(deps: ServerDeps): Promise<FastifyInstance> {
           ? { attachmentResolvers: resolvers }
           : {}),
       });
+      if (skipped) {
+        req.log.info(
+          { id: record.id, sender: payload.sender, thread: payload.thread_id },
+          "ingest echo suppressed",
+        );
+      }
       reply.code(202).send({
         ok: true,
         adapter,
         id: record.id,
         duplicate_of: duplicate?.id ?? null,
         near_duplicate_of: near_duplicate,
+        ...(skipped ? { skipped: true } : {}),
         wrote: {
           inbox: record.inbox_path,
           thread: record.thread_path,
