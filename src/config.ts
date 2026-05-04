@@ -20,7 +20,7 @@ const ConfigSchema = z.object({
   host: z.string().default("127.0.0.1"),
   port: z.coerce.number().int().nonnegative().max(65535).default(8787),
   triageProvider: z
-    .enum(["mock", "anthropic", "openai", "claude-code", "codex"])
+    .enum(["mock", "anthropic", "openai", "claude-code", "codex", "custom"])
     .default("mock"),
   appendOnly: z
     .union([z.literal("true"), z.literal("false")])

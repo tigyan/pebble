@@ -1,132 +1,88 @@
-# Pebble — MVP roadmap
+# Pebble — Roadmap
 
-## What ships in MVP (this commit)
+Backlog of features we'd like to land. Closed sprints (MVP through Sprint 5)
+have been pruned — git history has the receipts.
 
-- [x] `/ingest` webhook with shared-secret auth (constant-time compare)
-- [x] Provider adapters: BlueBubbles, Sendblue/Texting Blue, Apple Shortcuts, manual
-- [x] Append-only vault writer (Inbox / Sources / People / _System)
-- [x] SQLite mirror with FTS5 full-text search
-- [x] Heuristic triage classifier (`mock`) emitting Zod-validated `TriageResult`
-- [x] Vault indexer (titles, tags, aliases, headings, wikilinks)
-- [x] Agent tool surface (read/append/create/propose_patch/search/list/mark) with dry-run + JSONL audit log
-- [x] CLI: `init`, `ingest`, `triage`, `index`, `search`, `agent`, `doctor`
-- [x] Integration test: webhook → markdown → SQLite → triage → status
+## Recently shipped
 
-## Sprint 1 — make it daily-useful
+- **`/do` commands.** Messages prefixed with `/do …` flip the pipeline from
+  "save as a note" to "execute the agent and write the result into the vault".
+  Provider-pluggable (`mock` for tests, `claude-code` and `codex` for real
+  output), confined inside the vault by `sanitizeTargetPath` + `safePath`,
+  and audited via `agent-actions.jsonl`. `Inbox/` is intentionally not
+  mirrored for `/do` — only the agent's writes are persisted.
+  See `src/agent/command.ts`.
+- **Echo suppression for self-chat.** BlueBubbles double-fires
+  `new-message` for chat-with-self (outgoing send + iCloud-relay echo).
+  `findEchoDuplicate` now suppresses the second arrival on a 60s window
+  matched by sender + thread + text + attachment URIs, before any vault
+  write. See `src/ingest/pipeline.ts`.
+- **Codex CLI ≥0.20 compat.** Dropped the removed `--quiet` flag; replaced
+  with `--color never --skip-git-repo-check` so the worker runs from any
+  cwd and the JSON extractor isn't fooled by ANSI escapes.
+- **Per-contact ingest filter.** `ingest_filter` (off / allowlist / denylist)
+  with sender + thread lists, schema-validated overlay, dashboard editor,
+  and integration tests.
 
-- [x] Subscription-mode triage providers (CLI subprocess, login-based auth)
-  - [x] `claude-code` CLI driver
-  - [x] `codex` CLI driver
-  - [x] Schema-validated output extraction (handles JSON envelopes + fenced code)
-- [x] Filing executor: take a `TriageResult` and write a typed-home note in the
-      suggested folder, append a `[[wikilink]]` from the source thread,
-      mark ingestion `filed`.
-- [x] API-key triage providers (kept as reserved fallback; subscription mode is primary)
-  - [x] Anthropic Messages API (`claude-haiku-4-5` default; `claude-sonnet-4-6`,
-        `claude-opus-4-7` selectable via `PEBBLE_ANTHROPIC_MODEL`)
-  - [x] OpenAI Responses API (`gpt-5-mini` default, override via
-        `PEBBLE_OPENAI_MODEL`)
-- [x] Duplicate detection beyond exact-hash: shingled (k=3) Jaccard near-dup
-      across the most recent 200 ingestions. (LLM tiebreaker hook deferred to
-      Sprint 3 — the score is already surfaced for callers.)
-- [x] Attachment ingest: `materializeAttachments` copies remote / data: /
-      out-of-vault paths into `_System/attachments/`, rewrites the URI to
-      a vault-relative path. Privacy invariant: attachments are still never
-      auto-uploaded to model providers.
+## Planned / wishlist
 
-## Sprint 2 — UI
+### Agent capability
 
-- [x] Fastify-served dashboard (single-file vanilla HTML/CSS/JS, no framework)
-  - [x] Recent ingestions feed with triage status pills
-  - [x] Approve / edit suggested filing (folder override on the fly)
-  - [x] Vault search box backed by FTS5
-  - [x] In-page "Send" form that POSTs to `/ingest`
-  - [x] Sanitized `/api/config` (never echoes the ingest secret)
-  - [x] Tightened auth: all `/api/*`, `/recent`, `/search` require the token
-  - [x] Settings panel for editing triage provider + per-type default folders
-        (vault path stays env-only — mid-flight changes are too risky)
-- [x] Reject / dismiss action on triage suggestions (`rejected` ingest status).
-- [x] Browser bookmarklet that captures the current selection
-      (capture-via-hash → opens the dashboard same-origin, prefills the Send view).
+- [ ] **`isFromMe` filter in the BlueBubbles adapter.** Belt-and-braces
+      protection against self-chat duplicates: drop payloads where
+      `data.isFromMe === true` at the adapter layer, in addition to the
+      existing 60s echo suppression in the pipeline. One-line change in
+      `src/adapters/bluebubbles.ts`.
+- [ ] **Tool-calling loop for `/do`.** Right now `/do` is a single LLM
+      call: it picks a target and emits the markdown in one shot. Promote
+      it to a loop where the model can call `read_note`, `search_vault`,
+      `propose_patch`, etc., so it can read context before writing
+      (e.g. "extend the existing list in «Учеба» without duplicates").
+      Budget + rate limits already exist in `src/agent/budget.ts`.
+- [ ] **`/do` dry-run preview in the dashboard.** Submit a `/do` with
+      `?preview=1` to get back the proposed `target_path` + markdown
+      without writing, then approve/reject from the UI. Reuses
+      `propose_patch` infrastructure.
 
-## Sprint 3 — agents & embeddings
+### Ingestion / dedup
 
-- [x] Background worker that runs triage + (optional) auto-filing on a
-      configurable schedule. Settings-driven (enabled / interval_ms /
-      auto_file / batch); status surfaced via `GET /api/worker`; manual
-      one-shot via `POST /api/worker/run`. Tests cover triage, auto-file,
-      reconfigure, and error capture.
-- [x] Optional embeddings (`note_embeddings` table): one interface
-      (`EmbeddingProvider`), `mock` (offline, deterministic, hash-based) and
-      `openai` (`/v1/embeddings`) implementations. Vectors stored as Float32
-      BLOBs keyed by `(path, model)`. CLI: `pebble embed [--provider …]
-      [--force] [--limit n]`. Re-embedding is content-hash gated.
-- [x] Vector + FTS hybrid search via reciprocal-rank fusion. CLI:
-      `pebble search --hybrid <q>`. HTTP: `GET /api/search?q=…&hybrid=true`.
-      Falls back to FTS-only when no embeddings exist for the model.
-- [x] Subscription-aware agent runner with budgets + rate limiting:
-      `src/agent/{budget,runner}.ts`. Persistent daily call budget keyed by
-      `(day, model)`, in-memory token-bucket rate limiter. Worker now consults
-      both before each tick. Endpoints: `GET /api/agent`, `POST /api/agent/run`.
-      Budget snapshot is also surfaced on `GET /api/worker`. Settings expose
-      `agent.daily_call_budget`, `agent.rate_limit_per_min`, `agent.burst`,
-      `agent.triage_model`.
+- [ ] **Persistent echo cache for `/do` itself.** Today `/do` skips the
+      ingestion log, so the existing echo suppression doesn't catch a
+      double-fired `/do`. Either insert a thin "command" row into the DB
+      (status=`filed`, body=instruction) or add a small in-memory LRU
+      keyed by sender+thread+text.
+- [ ] **LLM tiebreaker for near-duplicates.** Score is already surfaced;
+      hook into a cheap classifier when Jaccard ∈ [0.6, 0.8] to decide
+      "merge / keep both / drop".
+- [ ] **Mac Messages.db read-only historical import.** Out-of-MVP fifth
+      adapter for backfilling pre-Pebble conversations. Fragile across
+      macOS upgrades, so behind an explicit `pebble import messages-db`
+      command rather than a webhook.
 
-## Sprint 4 — hardening
+### UI / DX
 
-- [x] OS keychain integration for secrets (macOS Keychain, Linux libsecret).
-      `src/secrets/{keychain,source}.ts` add a `SecretSource` abstraction with
-      `env`, `keychain`, and `auto` modes (controlled by
-      `PEBBLE_SECRETS_SOURCE`). The macOS backend shells out to `security`
-      and the Linux backend to `secret-tool`. `loadConfig` resolves
-      `PEBBLE_INGEST_SECRET` via the source; `getProvider` /
-      `getEmbeddingProvider` resolve API keys the same way. CLI:
-      `pebble secrets set|get|unset <KEY>` (set reads from stdin; get prints
-      only with `--show`).
-- ~~Optional cloud sync of `_System/` JSONL logs (encrypted).~~
-      *Dropped as YAGNI.* The only non-regenerable items in `_System/`
-      are the agent-actions audit log and the `patches/` revert history,
-      both operational rather than content. The vault itself is already
-      synced via the user's Obsidian setup, and SQLite rebuilds via
-      `pebble index`. A passphrase-managed encrypted backup format adds
-      ongoing maintenance for a personal tool whose actual value is
-      already protected. Users who want offsite copies of `_System/` can
-      point any directory-level sync (iCloud Drive, Dropbox, Drive) at
-      the folder.
-- [x] CI: typecheck + tests + adapter contract tests on every PR.
-      `.github/workflows/ci.yml` runs on push-to-main and PRs to main:
-      `npm ci`, `npm run typecheck`, `npm test` on Ubuntu / Node 22.
-      `tests/unit/adapter-contract.test.ts` enforces invariants for every
-      registered adapter (unique name, manual-is-last, schema-valid output,
-      no cross-fixture false positives).
-- [x] Schema migrations (hand-rolled, no extra deps).
-      `src/db/migrations.ts` runs the baseline schema (idempotent) plus any
-      pending `Migration` entries in a single transaction, tracking version
-      via `PRAGMA user_version`. `pebble doctor` surfaces the DB version
-      and flags drift. Migrations are append-only — never edit a shipped
-      one. v1 ships with zero migrations registered (baseline only).
+- [ ] **Send-tab `/do` autocomplete.** Detect a leading `/` in the
+      Send textarea and surface `/do` as a one-tap chip with a hint
+      ("Pebble will write the result into a note instead of saving the
+      message"). Cuts the discoverability problem.
+- [ ] **Patches review pane.** `_System/patches/` already stores reversible
+      diffs from `propose_patch`; the dashboard should list pending
+      patches with apply / revert buttons rather than requiring a CLI.
+- [ ] **Per-thread default folder.** Some senders ("Mom") almost always
+      mean Journal; some ("oncall") mean Tasks. Add a thread→folder
+      override layered between `default_folders[type]` and the model's
+      `suggested_folder`.
 
-## Sprint 5 — real-world readiness
+### Hardening / ops
 
-- [x] BlueBubbles attachment fetching. `src/adapters/bluebubbles-fetch.ts`
-      defines a `bluebubbles://attachment/<guid>` URI scheme, a typed
-      `AttachmentResolver` interface, and `makeBluebubblesAttachmentResolver`
-      that hits the BB Server's
-      `/api/v1/attachment/<guid>/download?password=…` endpoint. The
-      resolver is plumbed through `materializeAttachments` (new `resolvers`
-      map keyed by URI scheme) and `ingest()` so that webhook payloads
-      land in the vault with the binary materialized to
-      `_System/attachments/`. The BB password is resolved once at server
-      boot via `SecretSource` and never written to disk or to Markdown.
-- [x] `pebble doctor` BlueBubbles ping. When `PEBBLE_BLUEBUBBLES_URL` is
-      set, `doctor` calls `pingBluebubbles()` (`/api/v1/ping`) and reports
-      reachability + auth status alongside the existing schema-version /
-      vault-layout checks.
-- [x] Deploy guide for self-hosters: `docs/DEPLOY-BLUEBUBBLES.md`.
-      End-to-end recipe from "install BB Server on a Mac" through webhook
-      configuration, tunnel options (Tailscale / Cloudflare / ngrok),
-      OS-keychain secret seeding, attachment behavior, a `launchd` plist
-      template, and a troubleshooting table. Linked from `README.md`.
+- [ ] **Provider-side timeout + retry budget.** Today the CLI provider
+      hard-fails on the first non-zero exit. Add a single retry with
+      jitter for `claude-code` / `codex` to absorb transient subprocess
+      failures, capped by the daily call budget.
+- [ ] **`pebble doctor` /do smoke check.** Run a tiny `/do` against the
+      mock provider during `doctor` to verify the agent surface is
+      writable end-to-end (path sanitization, agent-actions.jsonl,
+      vault writability).
 
 ---
 
@@ -145,8 +101,8 @@ viable bridge has tradeoffs:
 - **Apple Shortcuts → HTTPS** — works on iOS without extra hardware but is
   pull-style: the user (or an Automation) has to *trigger* the Shortcut.
   Best for "send-to-self" flows where the user explicitly captures.
-- **Mac Messages.db scraping** — possible but fragile, breaks on macOS upgrades,
-  and is outside the MVP scope. We may add it as a fifth adapter for
+- **Mac Messages.db scraping** — possible but fragile, breaks on macOS
+  upgrades, and is outside the MVP scope. Listed under "Planned" as a
   read-only historical import.
 
 Pebble is deliberately provider-agnostic: each adapter is ~30 lines and the
@@ -154,10 +110,9 @@ canonical `IngestPayload` is the single contract.
 
 ### AI provider extension points
 
-The MVP intentionally ships with a heuristic classifier so the system is
-useful without any API key. Slots for real providers (`anthropic`, `openai`,
-`claude-code`, `codex`, local) live in `src/triage/classifier.ts` and follow
-one interface:
+The MVP ships with a heuristic classifier so the system is useful without
+any API key. Slots for real providers (`anthropic`, `openai`, `claude-code`,
+`codex`, local) live in `src/triage/classifier.ts` and follow one interface:
 
 ```ts
 interface TriageProvider {
@@ -166,13 +121,22 @@ interface TriageProvider {
 }
 ```
 
-This lets us swap models per-user (subscription tier), per-message-type, or
-even per-attempt in a self-consistency loop, without touching the rest of the
-pipeline.
+`/do` has a parallel interface in `src/agent/command.ts`:
+
+```ts
+interface CommandProvider {
+  name: string;
+  generate(input: { instruction: string; candidates: { path; title }[] }):
+    Promise<CommandResult>; // must satisfy CommandResultSchema
+}
+```
+
+This lets us swap models per-user, per-message-type, or even per-attempt
+in a self-consistency loop, without touching the rest of the pipeline.
 
 ### Privacy
 
-Anything sent to a model leaves the machine. We default to the local heuristic
-provider; an explicit `PEBBLE_TRIAGE_PROVIDER` change is required to send
-content to a remote API. Attachments are stored locally and referenced by path —
-they are never uploaded automatically.
+Anything sent to a model leaves the machine. We default to the local
+heuristic provider; an explicit `PEBBLE_TRIAGE_PROVIDER` change is
+required to send content to a remote API. Attachments are stored locally
+and referenced by path — they are never uploaded automatically.

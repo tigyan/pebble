@@ -174,6 +174,104 @@ describe("integration: webhook → inbox → triage → suggested filing", () =>
     expect(body.near_duplicate_of!.score).toBeGreaterThanOrEqual(0.6);
   });
 
+  describe("/do command", () => {
+    const auth = { "x-pebble-token": SECRET };
+
+    it("creates a note from a /do request and skips the Inbox mirror", async () => {
+      const res = await app.inject({
+        method: "POST",
+        url: "/ingest",
+        headers: auth,
+        payload: {
+          source: "manual",
+          sender: "self",
+          thread_id: "t-do",
+          text: "/do Расписать признаки подобия в «Учеба»",
+        },
+      });
+      expect(res.statusCode).toBe(202);
+      const body = res.json() as {
+        kind?: string;
+        action?: string;
+        target_path?: string;
+        ok?: boolean;
+      };
+      expect(body.kind).toBe("command");
+      expect(body.action).toBe("create");
+      expect(body.target_path).toMatch(/\.md$/);
+
+      const written = await fs.readFile(path.join(vault, body.target_path!), "utf8");
+      expect(written.length).toBeGreaterThan(0);
+
+      // /do is NOT mirrored into the ingestion log — only the agent's writes.
+      const logPath = path.join(vault, "_System", "ingestion-log.jsonl");
+      const log = await fs.readFile(logPath, "utf8").catch(() => "");
+      const ingestionEntries = log.split("\n").filter(Boolean);
+      expect(ingestionEntries).toHaveLength(0);
+
+      // Agent action log captures the create.
+      const actionsLog = await fs.readFile(
+        path.join(vault, "_System", "agent-actions.jsonl"),
+        "utf8",
+      );
+      const actions = actionsLog.split("\n").filter(Boolean).map((l) => JSON.parse(l));
+      expect(actions.some((a) => a.tool === "create_note" && a.ok === true)).toBe(true);
+    });
+
+    it("appends to an existing note when /do is sent twice with the same target", async () => {
+      const send = (text: string) =>
+        app.inject({
+          method: "POST",
+          url: "/ingest",
+          headers: auth,
+          payload: { source: "manual", sender: "self", thread_id: "t-do", text },
+        });
+
+      const first = await send("/do добавь признак 1 в «Учеба»");
+      expect(first.statusCode).toBe(202);
+      const firstBody = first.json() as { target_path: string; action: string };
+      expect(firstBody.action).toBe("create");
+
+      const second = await send("/do добавь признак 2 в «Учеба»");
+      expect(second.statusCode).toBe(202);
+      const secondBody = second.json() as {
+        target_path: string;
+        action: string;
+        fell_back?: string;
+      };
+      expect(secondBody.target_path).toBe(firstBody.target_path);
+      expect(secondBody.action).toBe("append");
+      expect(secondBody.fell_back).toBe("create_to_append");
+
+      const written = await fs.readFile(path.join(vault, firstBody.target_path), "utf8");
+      expect(written).toContain("признак 1");
+      expect(written).toContain("признак 2");
+    });
+
+    it("contains a path-traversal target inside the vault", async () => {
+      // why: defense-in-depth. Even if the model tries to escape (here via the
+      // quoted name), slugify + sanitizeTargetPath + safePath together must
+      // keep the write inside the vault root.
+      const res = await app.inject({
+        method: "POST",
+        url: "/ingest",
+        headers: auth,
+        payload: {
+          source: "manual",
+          sender: "self",
+          thread_id: "t-do",
+          text: '/do записать в «../../../etc/passwd»',
+        },
+      });
+      expect(res.statusCode).toBe(202);
+      const body = res.json() as { target_path: string; kind?: string };
+      expect(body.kind).toBe("command");
+      expect(body.target_path).not.toMatch(/\.\./);
+      const abs = path.resolve(vault, body.target_path);
+      expect(abs.startsWith(path.resolve(vault) + path.sep)).toBe(true);
+    });
+  });
+
   it("suppresses an echo (same sender/thread/text within window) without re-writing", async () => {
     const auth = { "x-pebble-token": SECRET };
     const payload = {

@@ -18,6 +18,11 @@ import {
   type SettingsStore,
 } from "../settings/store.js";
 import { agentStatus, runAgentOnce } from "../agent/runner.js";
+import {
+  getCommandProvider,
+  parseDoCommand,
+  runCommand,
+} from "../agent/command.js";
 import { getEmbeddingProvider } from "../embeddings/provider.js";
 import { searchHybrid } from "../embeddings/search.js";
 import { getProvider } from "../triage/classifier.js";
@@ -140,6 +145,47 @@ export async function buildServer(deps: ServerDeps): Promise<FastifyInstance> {
         });
         return;
       }
+
+      // why: a `/do …` prefix flips this from "save as a note" to "execute
+      // and write the result somewhere in the vault". The original message
+      // is intentionally NOT mirrored into Inbox — only the agent's writes
+      // are persisted, with a full entry in agent-actions.jsonl.
+      const cmd = parseDoCommand(payload.text);
+      if (cmd) {
+        try {
+          const provider = getCommandProvider(effectiveTriageProvider());
+          const result = await runCommand({
+            text: payload.text,
+            vaultPath: deps.config.vaultPath,
+            db: deps.db,
+            provider,
+          });
+          req.log.info(
+            {
+              sender: payload.sender,
+              thread: payload.thread_id,
+              provider: provider.name,
+              action: result.action,
+              path: result.target_path,
+            },
+            "do command executed",
+          );
+          reply.code(202).send({
+            adapter,
+            kind: "command",
+            ...result,
+          });
+        } catch (err) {
+          req.log.error({ err }, "do command failed");
+          reply.code(500).send({
+            ok: false,
+            kind: "command",
+            error: (err as Error).message,
+          });
+        }
+        return;
+      }
+
       const { record, duplicate, near_duplicate, skipped } = await ingest(payload, {
         vaultPath: deps.config.vaultPath,
         appendOnly: deps.config.appendOnly,

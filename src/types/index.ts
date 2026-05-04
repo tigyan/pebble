@@ -79,6 +79,25 @@ export const TriageResultSchema = z.object({
 });
 export type TriageResult = z.infer<typeof TriageResultSchema>;
 
+// --- /do command result --------------------------------------------------
+
+/**
+ * What a CommandProvider returns for a `/do` request. The provider sees the
+ * user's instruction plus a short list of vault candidates (top FTS hits) and
+ * decides where to write. We re-validate with Zod before any filesystem op.
+ */
+export const CommandResultSchema = z.object({
+  /** Append to an existing note, or create a new one. */
+  action: z.enum(["append", "create"]),
+  /** Vault-relative path. Must end in `.md`; refused if it escapes the vault. */
+  target_path: z.string().min(1),
+  /** Markdown body to write. Must be non-empty. */
+  markdown: z.string().min(1),
+  /** One-sentence reason for auditability (optional). */
+  rationale: z.string().max(500).optional(),
+});
+export type CommandResult = z.infer<typeof CommandResultSchema>;
+
 // --- Note frontmatter (what we write into Markdown) ----------------------
 
 export const NoteFrontmatterSchema = z.object({

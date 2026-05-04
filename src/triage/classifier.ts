@@ -5,7 +5,11 @@ import {
   TriageResultSchema,
 } from "../types/index.js";
 import { buildSecretSource, type SecretSource } from "../secrets/source.js";
-import { makeAnthropicProvider, makeOpenAIProvider } from "./api-provider.js";
+import {
+  makeAnthropicProvider,
+  makeCustomProvider,
+  makeOpenAIProvider,
+} from "./api-provider.js";
 import { makeCliProvider } from "./cli-provider.js";
 
 export interface TriageProvider {
@@ -76,11 +80,13 @@ export function getProvider(
 
     case "codex": {
       const bin = env.PEBBLE_CODEX_BIN || "codex";
-      // Codex CLI exec mode: stdin → assistant text on stdout.
+      // why: Codex CLI ≥0.20 dropped `--quiet`; `--color never` keeps ANSI
+      // escapes out of stdout so extractJsonObject can find the JSON cleanly.
+      // `--skip-git-repo-check` lets the worker run from any cwd.
       return makeCliProvider({
         name: "codex",
         bin,
-        args: ["exec", "--quiet", "-"],
+        args: ["exec", "--color", "never", "--skip-git-repo-check", "-"],
       });
     }
 
@@ -110,6 +116,38 @@ export function getProvider(
       if (env.PEBBLE_OPENAI_MODEL) opts.model = env.PEBBLE_OPENAI_MODEL;
       if (env.PEBBLE_OPENAI_BASE_URL) opts.baseUrl = env.PEBBLE_OPENAI_BASE_URL;
       return makeOpenAIProvider(opts);
+    }
+
+    case "custom": {
+      const baseUrl = env.PEBBLE_CUSTOM_BASE_URL ?? "";
+      const model = env.PEBBLE_CUSTOM_MODEL ?? "";
+      if (!baseUrl) {
+        throw new Error(
+          'triage provider "custom" requires PEBBLE_CUSTOM_BASE_URL ' +
+            "(OpenAI-compatible endpoint, e.g. https://openrouter.ai/api or http://localhost:11434).",
+        );
+      }
+      if (!model) {
+        throw new Error(
+          'triage provider "custom" requires PEBBLE_CUSTOM_MODEL (free-form model id).',
+        );
+      }
+      const opts: Parameters<typeof makeCustomProvider>[0] = { baseUrl, model };
+      const apiKey = secrets.get("PEBBLE_CUSTOM_API_KEY");
+      if (apiKey) opts.apiKey = apiKey;
+      if (env.PEBBLE_CUSTOM_PATH) opts.path = env.PEBBLE_CUSTOM_PATH;
+      // Optional extra headers as JSON, e.g. for OpenRouter attribution.
+      if (env.PEBBLE_CUSTOM_HEADERS) {
+        try {
+          const parsed = JSON.parse(env.PEBBLE_CUSTOM_HEADERS);
+          if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) {
+            opts.headers = parsed as Record<string, string>;
+          }
+        } catch {
+          throw new Error("PEBBLE_CUSTOM_HEADERS must be a JSON object");
+        }
+      }
+      return makeCustomProvider(opts);
     }
 
     default:

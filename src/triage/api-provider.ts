@@ -7,7 +7,7 @@ import type { TriageProvider } from "./classifier.js";
 import { extractJsonObject, renderTriagePrompt } from "./prompt.js";
 
 export interface ApiProviderConfig {
-  name: "anthropic" | "openai";
+  name: "anthropic" | "openai" | "custom";
   /** Build a fetch request from a fully-rendered prompt. */
   buildRequest(prompt: string): { url: string; init: RequestInit };
   /** Pull the assistant's text out of the provider's JSON envelope. */
@@ -155,6 +155,79 @@ export function makeOpenAIProvider(opts: OpenAIProviderOpts): TriageProvider {
         .join("\n")
         .trim();
       if (!text) throw new Error("openai response had no text content");
+      return text;
+    },
+  });
+}
+
+// --- Custom OpenAI-compatible /v1/chat/completions -----------------------
+
+/**
+ * Generic OpenAI-compatible chat-completions client. Targets any endpoint
+ * that speaks the de-facto standard `/v1/chat/completions` shape: OpenRouter,
+ * Ollama, LM Studio, vLLM, llama.cpp server, Together, Groq, etc.
+ *
+ * apiKey is optional — local servers (Ollama default) accept anonymous
+ * requests. When empty, no Authorization header is sent.
+ */
+export interface CustomProviderOpts {
+  baseUrl: string;
+  model: string;
+  apiKey?: string;
+  /** Override the path. Default: `/v1/chat/completions`. */
+  path?: string;
+  /** Extra headers (e.g. OpenRouter's `HTTP-Referer` / `X-Title`). */
+  headers?: Record<string, string>;
+  fetchImpl?: typeof fetch;
+}
+
+export function makeCustomProvider(opts: CustomProviderOpts): TriageProvider {
+  if (!opts.baseUrl) throw new Error("custom provider requires PEBBLE_CUSTOM_BASE_URL");
+  if (!opts.model) throw new Error("custom provider requires PEBBLE_CUSTOM_MODEL");
+  const baseUrl = opts.baseUrl.replace(/\/$/, "");
+  const path = opts.path ?? "/v1/chat/completions";
+
+  return makeApiProvider({
+    name: "custom",
+    fetchImpl: opts.fetchImpl ?? fetch,
+    buildRequest(prompt) {
+      const headers: Record<string, string> = {
+        "content-type": "application/json",
+        ...(opts.headers ?? {}),
+      };
+      if (opts.apiKey) headers.authorization = `Bearer ${opts.apiKey}`;
+      return {
+        url: `${baseUrl}${path}`,
+        init: {
+          method: "POST",
+          headers,
+          body: JSON.stringify({
+            model: opts.model,
+            messages: [{ role: "user", content: prompt }],
+          }),
+        },
+      };
+    },
+    extractText(body) {
+      const env = body as {
+        choices?: Array<{
+          message?: { content?: string | Array<{ type?: string; text?: string }> };
+        }>;
+      };
+      const msg = env.choices?.[0]?.message?.content;
+      let text: string;
+      if (typeof msg === "string") {
+        text = msg.trim();
+      } else if (Array.isArray(msg)) {
+        text = msg
+          .filter((p) => p && (p.type === "text" || p.type === "output_text") && typeof p.text === "string")
+          .map((p) => p.text as string)
+          .join("\n")
+          .trim();
+      } else {
+        text = "";
+      }
+      if (!text) throw new Error("custom response had no text content");
       return text;
     },
   });
