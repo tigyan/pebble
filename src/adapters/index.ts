@@ -2,10 +2,12 @@ import type { IngestPayload, IngestionAdapter } from "../types/index.js";
 import { IngestPayloadSchema } from "../types/index.js";
 import { shortcutsAdapter } from "./shortcuts.js";
 import { bluebubblesAdapter } from "./bluebubbles.js";
+import { pebbleBridgeAdapter } from "./pebble-bridge.js";
 import { sendblueAdapter } from "./sendblue.js";
 import { manualAdapter } from "./manual.js";
 
 export const ADAPTERS: IngestionAdapter[] = [
+  pebbleBridgeAdapter,
   bluebubblesAdapter,
   sendblueAdapter,
   shortcutsAdapter,

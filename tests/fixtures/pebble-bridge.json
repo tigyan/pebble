@@ -1,0 +1,14 @@
+{
+  "type": "message.created",
+  "timestamp": "2026-05-04T10:11:12.000Z",
+  "data": {
+    "message_id": "p:0xdeadbeef",
+    "chat_id": "iMessage;-;+15551234567",
+    "service": "iMessage",
+    "sender": "+15551234567",
+    "text": "Don't forget to renew the domain before Friday.",
+    "timestamp": "2026-05-04T10:11:12.000Z",
+    "is_from_me": false,
+    "attachments": []
+  }
+}

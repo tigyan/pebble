@@ -26,6 +26,17 @@ describe("adapters", () => {
     expect(payload.text).toContain("Flight booked");
   });
 
+  it("pebble-bridge SSE event → canonical payload", async () => {
+    const body = JSON.parse(await fs.readFile(path.join(FIX, "pebble-bridge.json"), "utf8"));
+    const { adapter, payload } = normalize({}, body);
+    expect(adapter).toBe("pebble-bridge");
+    expect(payload.source).toBe("imessage");
+    expect(payload.sender).toBe("+15551234567");
+    expect(payload.thread_id).toBe("iMessage;-;+15551234567");
+    expect(payload.text).toContain("renew the domain");
+    expect(payload.timestamp).toBe("2026-05-04T10:11:12.000Z");
+  });
+
   it("manual / shortcut JSON falls through to manual or shortcuts adapter", () => {
     const { adapter, payload } = normalize(
       { "user-agent": "Shortcuts/1.0" },
