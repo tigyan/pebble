@@ -98,6 +98,25 @@ export const CommandResultSchema = z.object({
 });
 export type CommandResult = z.infer<typeof CommandResultSchema>;
 
+/**
+ * Tool-loop step for `/do`. The provider can either request reads of vault
+ * notes (so it can ground the final write in real content) or emit the
+ * terminal write (`CommandResult`). The runner caps total steps so the loop
+ * can't run away.
+ */
+export const CommandReadRequestSchema = z.object({
+  action: z.literal("read"),
+  paths: z.array(z.string().min(1)).min(1).max(5),
+  rationale: z.string().max(500).optional(),
+});
+export type CommandReadRequest = z.infer<typeof CommandReadRequestSchema>;
+
+export const CommandStepSchema = z.union([
+  CommandReadRequestSchema,
+  CommandResultSchema,
+]);
+export type CommandStep = z.infer<typeof CommandStepSchema>;
+
 // --- Note frontmatter (what we write into Markdown) ----------------------
 
 export const NoteFrontmatterSchema = z.object({

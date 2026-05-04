@@ -10,6 +10,7 @@ export const TRIAGE_PROVIDERS = [
   "openai",
   "claude-code",
   "codex",
+  "custom",
 ] as const;
 export const TriageProviderNameSchema = z.enum(TRIAGE_PROVIDERS);
 export type TriageProviderName = z.infer<typeof TriageProviderNameSchema>;

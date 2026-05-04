@@ -5,9 +5,11 @@ import { openDB, type PebbleDB } from "../../src/db/client.js";
 import {
   CommandResultSchema,
   type CommandResult,
+  type CommandStep,
 } from "../../src/types/index.js";
 import {
   type CommandProvider,
+  DoEchoCache,
   mockCommandProvider,
   parseDoCommand,
   runCommand,
@@ -182,7 +184,38 @@ describe("runCommand", () => {
     await fs.access(path.join(vault, "Notes", "Foo.md"));
   });
 
-  it("throws on non-/do text", async () => {
+});
+
+describe("DoEchoCache", () => {
+  it("returns false on first hit and true on a repeat within window", () => {
+    const cache = new DoEchoCache(60_000);
+    expect(cache.hit("alice", "t1", "/do foo", 1_000)).toBe(false);
+    expect(cache.hit("alice", "t1", "/do foo", 2_000)).toBe(true);
+  });
+
+  it("expires entries past the window", () => {
+    const cache = new DoEchoCache(1_000);
+    expect(cache.hit("alice", "t1", "/do foo", 0)).toBe(false);
+    expect(cache.hit("alice", "t1", "/do foo", 2_000)).toBe(false);
+  });
+
+  it("distinguishes sender, thread, and text", () => {
+    const cache = new DoEchoCache(60_000);
+    expect(cache.hit("alice", "t1", "/do foo", 0)).toBe(false);
+    expect(cache.hit("bob", "t1", "/do foo", 0)).toBe(false);
+    expect(cache.hit("alice", "t2", "/do foo", 0)).toBe(false);
+    expect(cache.hit("alice", "t1", "/do bar", 0)).toBe(false);
+  });
+
+  it("disables when windowMs <= 0", () => {
+    const cache = new DoEchoCache(0);
+    expect(cache.hit("a", "t", "x", 0)).toBe(false);
+    expect(cache.hit("a", "t", "x", 1)).toBe(false);
+  });
+});
+
+describe("runCommand misc", () => {
+  it("rejects non-/do text upfront", async () => {
     await expect(
       runCommand({
         text: "just a plain note",
@@ -191,5 +224,126 @@ describe("runCommand", () => {
         provider: mockCommandProvider,
       }),
     ).rejects.toThrow(/not a \/do command/);
+  });
+});
+
+describe("runCommand tool loop", () => {
+  it("calls step() iteratively, serves reads, then writes", async () => {
+    const target = path.join(vault, "Notes", "Учеба.md");
+    await fs.mkdir(path.dirname(target), { recursive: true });
+    await fs.writeFile(target, "# Учеба\n\n- признак AA\n", "utf8");
+
+    const calls: { reads: string[] }[] = [];
+    const provider = {
+      name: "loop-stub",
+      async generate(): Promise<CommandResult> {
+        throw new Error("step() should be used");
+      },
+      async step({ reads }: { reads: { path: string; content: string }[] }): Promise<CommandStep> {
+        calls.push({ reads: reads.map((r) => r.path) });
+        if (reads.length === 0) {
+          return { action: "read", paths: ["Notes/Учеба.md"] };
+        }
+        // Saw the existing content; now append without duplicating "AA".
+        expect(reads[0]?.content).toContain("признак AA");
+        return CommandResultSchema.parse({
+          action: "append",
+          target_path: "Notes/Учеба.md",
+          markdown: "- признак SAS\n- признак SSS\n",
+          rationale: "extending existing list",
+        });
+      },
+    };
+
+    const r = await runCommand({
+      text: "/do добавь оставшиеся признаки в «Учеба»",
+      vaultPath: vault,
+      db,
+      provider,
+    });
+    expect(r.ok).toBe(true);
+    expect(r.action).toBe("append");
+    expect(r.steps).toBe(2);
+    expect(r.reads).toEqual(["Notes/Учеба.md"]);
+    expect(calls.length).toBe(2);
+    expect(calls[0]?.reads).toEqual([]);
+    expect(calls[1]?.reads).toEqual(["Notes/Учеба.md"]);
+    const after = await fs.readFile(target, "utf8");
+    expect(after).toContain("признак AA");
+    expect(after).toContain("признак SAS");
+  });
+
+  it("throws when the provider only requests reads up to maxSteps", async () => {
+    const provider = {
+      name: "stuck",
+      async generate(): Promise<CommandResult> {
+        throw new Error("unused");
+      },
+      async step(): Promise<CommandStep> {
+        return { action: "read", paths: ["Notes/Foo.md"] };
+      },
+    };
+    await expect(
+      runCommand({
+        text: "/do anything",
+        vaultPath: vault,
+        db,
+        provider,
+        maxSteps: 2,
+      }),
+    ).rejects.toThrow(/exceeded maxSteps/);
+  });
+
+  it("surfaces a missing read to the next step rather than crashing", async () => {
+    let round = 0;
+    const provider = {
+      name: "miss",
+      async generate(): Promise<CommandResult> {
+        throw new Error("unused");
+      },
+      async step({ reads }: { reads: { path: string; content: string }[] }): Promise<CommandStep> {
+        round++;
+        if (round === 1) {
+          return { action: "read", paths: ["Notes/DoesNotExist.md"] };
+        }
+        expect(reads[0]?.content).toMatch(/read failed/i);
+        return CommandResultSchema.parse({
+          action: "create",
+          target_path: "Notes/Recovered.md",
+          markdown: "fallback body\n",
+        });
+      },
+    };
+    const r = await runCommand({
+      text: "/do recover",
+      vaultPath: vault,
+      db,
+      provider,
+    });
+    expect(r.ok).toBe(true);
+    expect(r.action).toBe("create");
+    expect(r.steps).toBe(2);
+  });
+
+  it("falls back to generate() when the provider doesn't implement step()", async () => {
+    const provider = {
+      name: "no-step",
+      async generate() {
+        return CommandResultSchema.parse({
+          action: "create",
+          target_path: "Notes/SingleShot.md",
+          markdown: "body\n",
+        });
+      },
+    };
+    const r = await runCommand({
+      text: "/do legacy provider",
+      vaultPath: vault,
+      db,
+      provider,
+    });
+    expect(r.ok).toBe(true);
+    expect(r.steps).toBeUndefined();
+    expect(r.reads).toBeUndefined();
   });
 });

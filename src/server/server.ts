@@ -19,6 +19,7 @@ import {
 } from "../settings/store.js";
 import { agentStatus, runAgentOnce } from "../agent/runner.js";
 import {
+  DoEchoCache,
   getCommandProvider,
   parseDoCommand,
   runCommand,
@@ -82,6 +83,10 @@ export async function buildServer(deps: ServerDeps): Promise<FastifyInstance> {
     bodyLimit: 5 * 1024 * 1024,
     disableRequestLogging: false,
   });
+
+  // why: `/do` skips the ingestion echo log, so a double-fired command would
+  // otherwise burn a second model call. 60s window mirrors the pipeline's.
+  const doEchoCache = new DoEchoCache(60_000);
 
   let worker: WorkerHandle | null = null;
   if (deps.worker !== false) {
@@ -152,6 +157,20 @@ export async function buildServer(deps: ServerDeps): Promise<FastifyInstance> {
       // are persisted, with a full entry in agent-actions.jsonl.
       const cmd = parseDoCommand(payload.text);
       if (cmd) {
+        if (doEchoCache.hit(payload.sender, payload.thread_id, payload.text)) {
+          req.log.info(
+            { sender: payload.sender, thread: payload.thread_id },
+            "do command echo suppressed",
+          );
+          reply.code(202).send({
+            ok: true,
+            adapter,
+            kind: "command",
+            skipped: true,
+            reason: "echo",
+          });
+          return;
+        }
         try {
           const provider = getCommandProvider(effectiveTriageProvider());
           const result = await runCommand({

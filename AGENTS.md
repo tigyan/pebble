@@ -74,7 +74,7 @@ See `README.md`, `ARCHITECTURE.md`, `ROADMAP.md` for the user-facing picture.
 | ------------------------------ | --------------------------------------------- |
 | Types & Zod schemas            | `src/types/index.ts`                          |
 | Config (env → typed config)    | `src/config.ts`                               |
-| Provider adapters              | `src/adapters/{bluebubbles,sendblue,shortcuts,manual}.ts` |
+| Provider adapters              | `src/adapters/{pebble-bridge,bluebubbles,sendblue,shortcuts,manual}.ts` |
 | BlueBubbles attachment fetcher | `src/adapters/bluebubbles-fetch.ts`           |
 | Adapter selection              | `src/adapters/index.ts`                       |
 | HTTP server                    | `src/server/{server,index}.ts`                |

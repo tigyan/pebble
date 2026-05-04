@@ -40,9 +40,17 @@ npm run dev
 # → http://127.0.0.1:8787
 ```
 
-For a real iMessage source (BlueBubbles Server on a Mac → tunnel → Pebble),
-follow the end-to-end recipe in
-[`docs/DEPLOY-BLUEBUBBLES.md`](./docs/DEPLOY-BLUEBUBBLES.md).
+For a real iMessage source you have two recommended options:
+
+- **Pebble Bridge** (local-first, single-user, no cloud relay) — a sibling
+  repo at `~/Projects/Pebble Bridge`. Run the bridge on your Mac, then start
+  its bundled forwarder (`scripts/forward-to-pebble.ts`) to stream
+  `message.created` events into Pebble's `/ingest`. The matching
+  `pebble-bridge` adapter is already wired in. See
+  [`docs/DEPLOY-PEBBLE-BRIDGE.md`](./docs/DEPLOY-PEBBLE-BRIDGE.md).
+- **BlueBubbles Server** (Mac → tunnel → Pebble) — works well if you already
+  run BlueBubbles or want the broader ecosystem. End-to-end recipe in
+  [`docs/DEPLOY-BLUEBUBBLES.md`](./docs/DEPLOY-BLUEBUBBLES.md).
 
 ### Send a message
 
@@ -264,15 +272,16 @@ Plain Markdown, YAML frontmatter, `[[wikilinks]]`, `#tags` — Obsidian opens it
 
 ## Provider adapters
 
-Pebble ships with four ingestion adapters; the `/ingest` endpoint auto-detects
+Pebble ships with five ingestion adapters; the `/ingest` endpoint auto-detects
 which one matches based on headers + body shape:
 
-| Adapter        | What it accepts                                                                                  |
-| -------------- | ------------------------------------------------------------------------------------------------ |
-| `bluebubbles`  | [BlueBubbles](https://bluebubbles.app) webhook payload (`{ type, data: { guid, text, ... } }`)   |
-| `sendblue`     | [Sendblue](https://docs.sendblue.com) / Texting Blue inbound webhook                              |
-| `shortcuts`    | Apple Shortcuts → POST JSON (also catches `User-Agent: Shortcuts/*`, `X-Shortcut-Name`)           |
-| `manual`       | Canonical `IngestPayload` shape — used by the CLI and as a catch-all fallback                     |
+| Adapter         | What it accepts                                                                                  |
+| --------------- | ------------------------------------------------------------------------------------------------ |
+| `pebble-bridge` | [Pebble Bridge](./docs/DEPLOY-PEBBLE-BRIDGE.md) `message.created` envelopes (local-first)        |
+| `bluebubbles`   | [BlueBubbles](https://bluebubbles.app) webhook payload (`{ type, data: { guid, text, ... } }`)   |
+| `sendblue`      | [Sendblue](https://docs.sendblue.com) / Texting Blue inbound webhook                              |
+| `shortcuts`     | Apple Shortcuts → POST JSON (also catches `User-Agent: Shortcuts/*`, `X-Shortcut-Name`)           |
+| `manual`        | Canonical `IngestPayload` shape — used by the CLI and as a catch-all fallback                     |
 
 Adding a new adapter is a 30-line file in `src/adapters/`; see `bluebubbles.ts`.
 

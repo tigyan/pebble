@@ -26,6 +26,32 @@ have been pruned — git history has the receipts.
 
 ## Planned / wishlist
 
+### Librarian loop (north star)
+
+The agent should behave as a semi-automatic Librarian of the vault: file
+what it can on its own, and **ask the user back via iMessage** when it
+can't file confidently. See "Product vision" in `ARCHITECTURE.md`.
+
+- [ ] **Clarification protocol.** When triage / `/do` / filing hits a
+      situation it can't resolve (ambiguous target, conflicting candidates,
+      `propose_patch` requiring approval, budget exhausted, missing field),
+      the agent emits a structured `ClarificationRequest` with: the
+      ingestion id, what was attempted, the options seen, and a single
+      concrete question. Stored in SQLite so a reply can be matched back.
+- [ ] **Outbound send via Pebble Bridge.** Wire `POST /api/v1/messages/send`
+      so the Librarian can answer in the *same iMessage thread* that
+      produced the item. Reuses Bridge auth + rate limiting; behind a
+      settings flag (off by default).
+- [ ] **Reply routing.** When a new inbound message arrives in a thread
+      that has an open clarification, route it to the clarification
+      handler (apply the user's choice → resume filing) instead of being
+      filed as a fresh ingestion. Append the resolution to
+      `agent-actions.jsonl`.
+- [ ] **Dashboard "open questions" pane.** List unresolved
+      `ClarificationRequest`s with the original message, the options the
+      agent considered, and an "answer here" affordance — so the user can
+      respond from the dashboard if they're not on iMessage.
+
 ### Agent capability
 
 - [ ] **`isFromMe` filter in the BlueBubbles adapter.** Belt-and-braces
@@ -33,12 +59,14 @@ have been pruned — git history has the receipts.
       `data.isFromMe === true` at the adapter layer, in addition to the
       existing 60s echo suppression in the pipeline. One-line change in
       `src/adapters/bluebubbles.ts`.
-- [ ] **Tool-calling loop for `/do`.** Right now `/do` is a single LLM
-      call: it picks a target and emits the markdown in one shot. Promote
-      it to a loop where the model can call `read_note`, `search_vault`,
-      `propose_patch`, etc., so it can read context before writing
-      (e.g. "extend the existing list in «Учеба» without duplicates").
-      Budget + rate limits already exist in `src/agent/budget.ts`.
+- [x] **Tool-calling loop for `/do`.** Providers can now implement an
+      optional `step()` that returns either a read request
+      (`{action:"read", paths:[…]}`, max 5 paths) or the terminal write.
+      `runCommand` serves reads via `AgentTools.read_note` (path-checked,
+      audit-logged), feeds them back next round, and caps total steps
+      (`maxSteps`, default 3). CLI providers `claude-code`/`codex` got a
+      new prompt; the mock provider stays single-shot. Result includes
+      `steps` + `reads` for observability. See `src/agent/command.ts`.
 - [ ] **`/do` dry-run preview in the dashboard.** Submit a `/do` with
       `?preview=1` to get back the proposed `target_path` + markdown
       without writing, then approve/reject from the UI. Reuses
@@ -46,11 +74,10 @@ have been pruned — git history has the receipts.
 
 ### Ingestion / dedup
 
-- [ ] **Persistent echo cache for `/do` itself.** Today `/do` skips the
-      ingestion log, so the existing echo suppression doesn't catch a
-      double-fired `/do`. Either insert a thin "command" row into the DB
-      (status=`filed`, body=instruction) or add a small in-memory LRU
-      keyed by sender+thread+text.
+- [x] **Echo cache for `/do` itself.** In-memory `DoEchoCache`
+      (sender+thread+text, 60s window) wired in `server.ts` before
+      `runCommand` so a double-fired `/do` returns `skipped: "echo"` and
+      doesn't burn a model call. See `src/agent/command.ts`.
 - [ ] **LLM tiebreaker for near-duplicates.** Score is already surfaced;
       hook into a cheap classifier when Jaccard ∈ [0.6, 0.8] to decide
       "merge / keep both / drop".

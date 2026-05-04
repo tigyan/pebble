@@ -108,7 +108,7 @@ const h = (tag, attrs = {}, ...children) => {
 
 const TOKEN_KEY = "pebble_token";
 const NOTE_TYPES = ["idea","task","meeting_note","contact","project_note","reference","question","journal","finance","travel","media","other"];
-const TRIAGE_PROVIDERS = ["mock","claude-code","codex","anthropic","openai"];
+const TRIAGE_PROVIDERS = ["mock","claude-code","codex","anthropic","openai","custom"];
 let token = localStorage.getItem(TOKEN_KEY) || "";
 let view = "inbox"; // inbox | search | send | settings
 let pendingCapture = ""; // populated from #capture= hash, consumed by renderSend()

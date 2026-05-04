@@ -1,5 +1,37 @@
 # Pebble Architecture
 
+## Product vision: the agent is a Librarian
+
+Pebble's long-running agent is meant to act as a **semi-automatic Librarian**
+of the user's Obsidian Vault. Its job is to receive inbound material
+(messages, captures, `/do` commands), file each item into the right note in
+the right place, keep links and structure clean, and surface the result.
+
+The default mode is **autonomous within bounds** — the agent triages and
+files everything it can confidently route on its own. When it cannot file
+confidently (ambiguous target, conflicting candidates, unsafe overwrite,
+budget exhausted, missing field, etc.), it must **ask the user back through
+iMessage** rather than silently dropping the item or writing to a wrong
+location. The user replies in the same thread; the agent treats that reply
+as authoritative input and resumes filing.
+
+Implications baked into the architecture:
+
+- The vault is append-only (`writeIngestion` / `appendFile` /
+  `proposePatch`), so a wrong guess is always reversible.
+- Every action is recorded in `_System/agent-actions.jsonl` and the
+  `agent_actions` table, so a clarification thread can quote what was
+  attempted and why.
+- The send path (`/api/v1/messages/send` on Pebble Bridge, or the matching
+  send adapter) is the canonical "ask the user" channel — the same iMessage
+  thread that produced the item gets the question back.
+- `propose_patch` exists specifically so the Librarian can stage a reversible
+  change and ask for approval rather than committing blind.
+
+See `ROADMAP.md` for the concrete capabilities still required to make this
+loop end-to-end (Librarian clarification protocol, send-back wiring, reply
+routing).
+
 ## High-level flow
 
 ```mermaid

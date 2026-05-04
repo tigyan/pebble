@@ -3,8 +3,9 @@ import type { IngestPayload, IngestionAdapter } from "../types/index.js";
 /**
  * Pebble Bridge adapter.
  *
- * Pebble Bridge (https://github.com/.../pebble-bridge — local sibling repo)
- * exposes an SSE stream `GET /api/v1/events` that emits envelopes shaped:
+ * Pebble Bridge (sibling repo at `~/Projects/Pebble Bridge`, see
+ * `docs/DEPLOY-PEBBLE-BRIDGE.md`) exposes an SSE stream `GET /api/v1/events`
+ * that emits envelopes shaped:
  *
  *   {
  *     "type": "message.created",
