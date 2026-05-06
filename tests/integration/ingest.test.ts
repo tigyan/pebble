@@ -272,6 +272,54 @@ describe("integration: webhook → inbox → triage → suggested filing", () =>
     });
   });
 
+  it("routes an inbound message to an open clarification on the same thread", async () => {
+    const { stageClarification } = await import("../../src/agent/clarify.js");
+    const staged = await stageClarification(
+      { vaultPath: vault, db, agent: "librarian-test", dryRun: false },
+      {
+        source_kind: "ingestion",
+        sender: "+15550009999",
+        thread_id: "iMessage;-;+15550009999",
+        question: "Inbox or Areas/Work?",
+        options: ["Inbox", "Areas/Work"],
+      },
+    );
+
+    const res = await app.inject({
+      method: "POST",
+      url: "/ingest",
+      headers: { "x-pebble-token": SECRET },
+      payload: {
+        source: "manual",
+        sender: "+15550009999",
+        thread_id: "iMessage;-;+15550009999",
+        text: "Areas/Work",
+      },
+    });
+    expect(res.statusCode).toBe(202);
+    expect(res.json()).toMatchObject({
+      ok: true,
+      kind: "clarification_reply",
+      clarification_id: staged.request.id,
+    });
+
+    const fromDb = db.getClarification(staged.request.id);
+    expect(fromDb!.status).toBe("answered");
+    expect(fromDb!.answer_text).toBe("Areas/Work");
+
+    // No vault ingestion was written for the reply.
+    const logPath = path.join(vault, "_System", "ingestion-log.jsonl");
+    const exists = await fs
+      .stat(logPath)
+      .then(() => true)
+      .catch(() => false);
+    if (exists) {
+      const log = await fs.readFile(logPath, "utf8");
+      const entries = log.split("\n").filter(Boolean);
+      expect(entries).toHaveLength(0);
+    }
+  });
+
   it("suppresses an echo (same sender/thread/text within window) without re-writing", async () => {
     const auth = { "x-pebble-token": SECRET };
     const payload = {

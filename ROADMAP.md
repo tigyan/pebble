@@ -32,25 +32,28 @@ The agent should behave as a semi-automatic Librarian of the vault: file
 what it can on its own, and **ask the user back via iMessage** when it
 can't file confidently. See "Product vision" in `ARCHITECTURE.md`.
 
-- [ ] **Clarification protocol.** When triage / `/do` / filing hits a
-      situation it can't resolve (ambiguous target, conflicting candidates,
-      `propose_patch` requiring approval, budget exhausted, missing field),
-      the agent emits a structured `ClarificationRequest` with: the
-      ingestion id, what was attempted, the options seen, and a single
-      concrete question. Stored in SQLite so a reply can be matched back.
+- [x] **Clarification protocol.** `ClarificationRequest` schema +
+      `clarifications` SQLite table (migration v1) +
+      `stageClarification(ctx, args)` in `src/agent/clarify.ts`. Idempotent
+      per thread (returns the existing open one), honors `ctx.dryRun`,
+      audits via `agent-actions.jsonl`. Producers (triage / `/do` / filing)
+      to be wired in as concrete cases land — `context.kind` is the soft
+      discriminator they use.
 - [ ] **Outbound send via Pebble Bridge.** Wire `POST /api/v1/messages/send`
       so the Librarian can answer in the *same iMessage thread* that
       produced the item. Reuses Bridge auth + rate limiting; behind a
       settings flag (off by default).
-- [ ] **Reply routing.** When a new inbound message arrives in a thread
-      that has an open clarification, route it to the clarification
-      handler (apply the user's choice → resume filing) instead of being
-      filed as a fresh ingestion. Append the resolution to
-      `agent-actions.jsonl`.
-- [ ] **Dashboard "open questions" pane.** List unresolved
-      `ClarificationRequest`s with the original message, the options the
-      agent considered, and an "answer here" affordance — so the user can
-      respond from the dashboard if they're not on iMessage.
+- [x] **Reply routing.** `tryResolveClarification` runs in `/ingest`
+      between `/do` parsing and the normal pipeline: when an inbound
+      message arrives on a thread with an open clarification, it is
+      stored as the `answer_text`, the row is marked `answered`, the
+      resolution is appended to `agent-actions.jsonl`, and the message is
+      *not* filed as a fresh ingestion. Resume-filing-with-the-answer is
+      deferred until concrete producers exist.
+- [x] **Dashboard "open questions" pane.** Inbox view lists open
+      clarifications above recent ingestions, with one-click option chips
+      and a free-form answer box. Backed by `GET /api/clarifications` and
+      `POST /api/clarifications/:id/answer`.
 
 ### Agent capability
 

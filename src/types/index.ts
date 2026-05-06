@@ -117,6 +117,49 @@ export const CommandStepSchema = z.union([
 ]);
 export type CommandStep = z.infer<typeof CommandStepSchema>;
 
+// --- Clarification (Librarian asks the user back) ------------------------
+
+/**
+ * When the agent (triage / `/do` / filing) cannot file confidently it stages
+ * a `ClarificationRequest`: a single concrete question, optional choice list,
+ * and enough context to resume once the user answers. Persisted in SQLite so
+ * an inbound reply on the same `thread_id` can be matched and applied.
+ *
+ * `source_kind` distinguishes who asked:
+ *   - `do_command` — `/do` couldn't confidently pick a target
+ *   - `ingestion`  — passive triage/filing got stuck on a raw item
+ */
+export const ClarificationSourceKindSchema = z.enum(["do_command", "ingestion"]);
+export type ClarificationSourceKind = z.infer<typeof ClarificationSourceKindSchema>;
+
+export const ClarificationStatusSchema = z.enum(["open", "answered", "cancelled"]);
+export type ClarificationStatus = z.infer<typeof ClarificationStatusSchema>;
+
+export const ClarificationRequestSchema = z.object({
+  id: z.string().min(1),
+  created_at: z.string().datetime(),
+  status: ClarificationStatusSchema.default("open"),
+  source_kind: ClarificationSourceKindSchema,
+  /** Originating ingestion, when the question is about a specific raw item. */
+  ingestion_id: z.string().nullable().default(null),
+  /** Routing back: same iMessage thread the original message came from. */
+  sender: z.string().min(1),
+  thread_id: z.string().min(1),
+  /** One concrete question to put in the iMessage reply. */
+  question: z.string().min(1).max(1_000),
+  /** Optional choice list (max 5). Empty array = free-form answer expected. */
+  options: z.array(z.string().min(1).max(200)).max(5).default([]),
+  /**
+   * Auditable context the agent considered: attempted target, candidates seen,
+   * provider rationale, etc. Schema-loose by design — this is for humans /
+   * future replays, not a state machine.
+   */
+  context: z.record(z.string(), z.unknown()).default({}),
+  answered_at: z.string().datetime().nullable().default(null),
+  answer_text: z.string().nullable().default(null),
+});
+export type ClarificationRequest = z.infer<typeof ClarificationRequestSchema>;
+
 // --- Note frontmatter (what we write into Markdown) ----------------------
 
 export const NoteFrontmatterSchema = z.object({
@@ -156,6 +199,7 @@ export const AgentActionSchema = z.object({
     "search_vault",
     "list_recent_ingestions",
     "mark_ingestion_status",
+    "stage_clarification",
   ]),
   args: z.record(z.unknown()),
   dry_run: z.boolean().default(false),

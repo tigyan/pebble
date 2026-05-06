@@ -265,4 +265,73 @@ describe("dashboard API", () => {
     });
     expect(reject.statusCode).toBe(409);
   });
+
+  describe("clarifications API", () => {
+    it("lists open questions and answers them", async () => {
+      const { stageClarification } = await import("../../src/agent/clarify.js");
+      const staged = await stageClarification(
+        { vaultPath: vault, db, agent: "librarian-test", dryRun: false },
+        {
+          source_kind: "ingestion",
+          sender: "self",
+          thread_id: "thread-dash",
+          question: "Inbox or Areas/Work?",
+          options: ["Inbox", "Areas/Work"],
+        },
+      );
+
+      const list = await app.inject({
+        method: "GET",
+        url: "/api/clarifications?status=open",
+        headers: auth,
+      });
+      expect(list.statusCode).toBe(200);
+      const body = list.json() as { items: Array<{ id: string }> };
+      expect(body.items.map((i) => i.id)).toContain(staged.request.id);
+
+      const answer = await app.inject({
+        method: "POST",
+        url: `/api/clarifications/${staged.request.id}/answer`,
+        headers: { ...auth, "content-type": "application/json" },
+        payload: { answer_text: "Areas/Work" },
+      });
+      expect(answer.statusCode).toBe(200);
+      expect(answer.json()).toMatchObject({ ok: true, answer_text: "Areas/Work" });
+
+      const fromDb = db.getClarification(staged.request.id);
+      expect(fromDb!.status).toBe("answered");
+      expect(fromDb!.answer_text).toBe("Areas/Work");
+
+      const repeat = await app.inject({
+        method: "POST",
+        url: `/api/clarifications/${staged.request.id}/answer`,
+        headers: { ...auth, "content-type": "application/json" },
+        payload: { answer_text: "again" },
+      });
+      expect(repeat.statusCode).toBe(409);
+    });
+
+    it("404 on unknown id, 400 on empty body", async () => {
+      const nf = await app.inject({
+        method: "POST",
+        url: "/api/clarifications/does-not-exist/answer",
+        headers: { ...auth, "content-type": "application/json" },
+        payload: { answer_text: "x" },
+      });
+      expect(nf.statusCode).toBe(404);
+
+      const { stageClarification } = await import("../../src/agent/clarify.js");
+      const s = await stageClarification(
+        { vaultPath: vault, db, agent: "librarian-test", dryRun: false },
+        { source_kind: "ingestion", sender: "self", thread_id: "thread-empty", question: "?" },
+      );
+      const empty = await app.inject({
+        method: "POST",
+        url: `/api/clarifications/${s.request.id}/answer`,
+        headers: { ...auth, "content-type": "application/json" },
+        payload: { answer_text: "" },
+      });
+      expect(empty.statusCode).toBe(400);
+    });
+  });
 });

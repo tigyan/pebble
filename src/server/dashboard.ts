@@ -209,11 +209,68 @@ function navBtn(name, label) {
 // --- Inbox -------------------------------------------------------------
 async function renderInbox() {
   const cfg = await api("/api/config");
-  const data = await api("/api/recent?limit=50");
+  const [data, clar] = await Promise.all([
+    api("/api/recent?limit=50"),
+    api("/api/clarifications?status=open&limit=50"),
+  ]);
+  const wrap = h("div", {});
+  wrap.append(renderClarifications(clar.items || []));
   const list = h("div", { class: "card" }, h("h2", {}, "Recent ingestions"));
   if (!data.items.length) list.append(h("p", { style: "color:var(--muted)" }, "(nothing yet — send a message)"));
   for (const it of data.items) list.append(rowFor(it));
-  renderShell(list, cfg);
+  wrap.append(list);
+  renderShell(wrap, cfg);
+}
+
+function renderClarifications(items) {
+  const card = h("div", { class: "card" }, h("h2", {}, "Open questions ", h("span", { class: "meta" }, "(" + items.length + ")")));
+  if (!items.length) {
+    card.append(h("p", { style: "color:var(--muted)" }, "(none — the agent has no pending questions)"));
+    return card;
+  }
+  for (const it of items) card.append(rowForClarification(it));
+  return card;
+}
+
+function rowForClarification(it) {
+  const input = h("input", {
+    type: "text",
+    placeholder: "your answer…",
+    style: "flex:1;padding:8px",
+  });
+  const send = h("button", {
+    class: "primary",
+    onclick: async () => {
+      const v = input.value.trim();
+      if (!v) return;
+      try {
+        await api("/api/clarifications/" + encodeURIComponent(it.id) + "/answer", {
+          method: "POST",
+          body: { answer_text: v },
+        });
+        toast("Answered");
+        renderInbox();
+      } catch (e) {
+        toast("Failed: " + e.message, "err");
+      }
+    },
+  }, "Answer");
+  const opts = (it.options || []).map((o) =>
+    h("button", {
+      style: "margin-right:6px",
+      onclick: () => { input.value = o; },
+    }, o),
+  );
+  return h("div", { class: "row", style: "flex-direction:column;align-items:stretch;gap:6px" },
+    h("div", {},
+      h("span", { class: "pill" }, it.source_kind),
+      " ",
+      h("span", { class: "meta" }, fmtDate(it.created_at), " · ", it.thread_id),
+    ),
+    h("div", {}, h("strong", {}, it.question)),
+    opts.length ? h("div", {}, opts) : null,
+    h("div", { style: "display:flex;gap:6px" }, input, send),
+  );
 }
 
 function rowFor(item) {

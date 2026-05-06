@@ -82,4 +82,23 @@ CREATE TABLE IF NOT EXISTS agent_budget (
     tokens INTEGER NOT NULL DEFAULT 0,
     PRIMARY KEY (day, model)
 );
+
+CREATE TABLE IF NOT EXISTS clarifications (
+    id           TEXT PRIMARY KEY,
+    created_at   TEXT NOT NULL,
+    status       TEXT NOT NULL DEFAULT 'open',
+    source_kind  TEXT NOT NULL,
+    ingestion_id TEXT,
+    sender       TEXT NOT NULL,
+    thread_id    TEXT NOT NULL,
+    question     TEXT NOT NULL,
+    options_json TEXT NOT NULL DEFAULT '[]',
+    context_json TEXT NOT NULL DEFAULT '{}',
+    answered_at  TEXT,
+    answer_text  TEXT
+);
+
+CREATE INDEX IF NOT EXISTS ix_clarifications_thread_status ON clarifications(thread_id, status);
+CREATE INDEX IF NOT EXISTS ix_clarifications_status        ON clarifications(status);
+CREATE INDEX IF NOT EXISTS ix_clarifications_created_at    ON clarifications(created_at);
 `;

@@ -22,8 +22,31 @@ export interface Migration {
  *   3. Tests in `tests/unit/migrations.test.ts` check idempotence + replay.
  */
 export const MIGRATIONS: Migration[] = [
-  // Example shape (intentionally empty in v1):
-  // { version: 1, name: "add_foo", up(db) { db.exec("ALTER TABLE …"); } },
+  {
+    version: 1,
+    name: "add_clarifications",
+    up(db) {
+      db.exec(`
+        CREATE TABLE IF NOT EXISTS clarifications (
+          id           TEXT PRIMARY KEY,
+          created_at   TEXT NOT NULL,
+          status       TEXT NOT NULL DEFAULT 'open',
+          source_kind  TEXT NOT NULL,
+          ingestion_id TEXT,
+          sender       TEXT NOT NULL,
+          thread_id    TEXT NOT NULL,
+          question     TEXT NOT NULL,
+          options_json TEXT NOT NULL DEFAULT '[]',
+          context_json TEXT NOT NULL DEFAULT '{}',
+          answered_at  TEXT,
+          answer_text  TEXT
+        );
+        CREATE INDEX IF NOT EXISTS ix_clarifications_thread_status ON clarifications(thread_id, status);
+        CREATE INDEX IF NOT EXISTS ix_clarifications_status        ON clarifications(status);
+        CREATE INDEX IF NOT EXISTS ix_clarifications_created_at    ON clarifications(created_at);
+      `);
+    },
+  },
 ];
 
 export function currentSchemaVersion(): number {

@@ -18,6 +18,7 @@ import {
   type SettingsStore,
 } from "../settings/store.js";
 import { agentStatus, runAgentOnce } from "../agent/runner.js";
+import { tryResolveClarification } from "../agent/clarify.js";
 import {
   DoEchoCache,
   getCommandProvider,
@@ -205,6 +206,31 @@ export async function buildServer(deps: ServerDeps): Promise<FastifyInstance> {
         return;
       }
 
+      // why: if the Librarian asked the user a question on this iMessage
+      // thread and is still waiting for an answer, treat this inbound message
+      // as the answer instead of filing it as a fresh ingestion.
+      const resolved = await tryResolveClarification(
+        { vaultPath: deps.config.vaultPath, db: deps.db, agent: "librarian", dryRun: false },
+        { sender: payload.sender, thread_id: payload.thread_id, text: payload.text },
+      );
+      if (resolved) {
+        req.log.info(
+          {
+            sender: payload.sender,
+            thread: payload.thread_id,
+            clarification_id: resolved.request.id,
+          },
+          "clarification answered",
+        );
+        reply.code(202).send({
+          ok: true,
+          adapter,
+          kind: "clarification_reply",
+          clarification_id: resolved.request.id,
+        });
+        return;
+      }
+
       const { record, duplicate, near_duplicate, skipped } = await ingest(payload, {
         vaultPath: deps.config.vaultPath,
         appendOnly: deps.config.appendOnly,
@@ -377,6 +403,36 @@ export async function buildServer(deps: ServerDeps): Promise<FastifyInstance> {
       triage: effective,
     });
     return { ok: true, ...result };
+  });
+
+  app.get("/api/clarifications", async (req) => {
+    const q = (req.query as { status?: string; limit?: string }) ?? {};
+    const limit = Math.min(Number(q.limit ?? 50) || 50, 200);
+    const status =
+      q.status === "open" || q.status === "answered" || q.status === "cancelled"
+        ? q.status
+        : undefined;
+    const items = deps.db.listClarifications(status ? { status, limit } : { limit });
+    return { items };
+  });
+
+  const AnswerBody = z.object({ answer_text: z.string().min(1).max(2000) });
+
+  app.post("/api/clarifications/:id/answer", async (req, reply) => {
+    const id = (req.params as { id: string }).id;
+    const existing = deps.db.getClarification(id);
+    if (!existing) return reply.code(404).send({ ok: false, error: "not found" });
+    if (existing.status !== "open") {
+      return reply.code(409).send({ ok: false, error: `already ${existing.status}` });
+    }
+    let body: z.infer<typeof AnswerBody>;
+    try {
+      body = AnswerBody.parse(req.body ?? {});
+    } catch (err) {
+      return reply.code(400).send({ ok: false, error: (err as Error).message });
+    }
+    const ok = deps.db.resolveClarification({ id, answer_text: body.answer_text });
+    return { ok, id, answer_text: body.answer_text };
   });
 
   app.get("/api/search", async (req, reply) => {

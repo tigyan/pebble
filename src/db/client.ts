@@ -3,6 +3,8 @@ import path from "node:path";
 import Database from "better-sqlite3";
 import type {
   AgentAction,
+  ClarificationRequest,
+  ClarificationStatus,
   IngestRecord,
   IngestStatus,
   TriageResult,
@@ -55,6 +57,17 @@ export interface PebbleDB {
   countEmbeddings(model: string): number;
   getBudgetUsage(day: string, model: string): { calls: number; tokens: number };
   incrementBudget(args: { day: string; model: string; calls: number; tokens: number }): void;
+  insertClarification(rec: ClarificationRequest): void;
+  getClarification(id: string): ClarificationRequest | null;
+  listClarifications(args?: { status?: ClarificationStatus; limit?: number }): ClarificationRequest[];
+  /** Most recent `open` clarification for a thread, or null. Used for reply routing. */
+  findOpenClarificationByThread(thread_id: string): ClarificationRequest | null;
+  resolveClarification(args: {
+    id: string;
+    answer_text: string;
+    answered_at?: string;
+    status?: Extract<ClarificationStatus, "answered" | "cancelled">;
+  }): boolean;
   schemaVersion(): number;
   close(): void;
 }
@@ -140,7 +153,49 @@ export function openDB(dbPath: string): PebbleDB {
         calls  = calls  + excluded.calls,
         tokens = tokens + excluded.tokens
     `),
+    insertClarification: db.prepare(`
+      INSERT INTO clarifications
+        (id, created_at, status, source_kind, ingestion_id, sender, thread_id,
+         question, options_json, context_json, answered_at, answer_text)
+      VALUES
+        (@id, @created_at, @status, @source_kind, @ingestion_id, @sender, @thread_id,
+         @question, @options_json, @context_json, @answered_at, @answer_text)
+    `),
+    getClarification: db.prepare(`SELECT * FROM clarifications WHERE id = ?`),
+    listClarificationsByStatus: db.prepare(`
+      SELECT * FROM clarifications WHERE status = ? ORDER BY created_at DESC LIMIT ?
+    `),
+    listClarificationsAll: db.prepare(`
+      SELECT * FROM clarifications ORDER BY created_at DESC LIMIT ?
+    `),
+    findOpenByThread: db.prepare(`
+      SELECT * FROM clarifications
+      WHERE thread_id = ? AND status = 'open'
+      ORDER BY created_at DESC LIMIT 1
+    `),
+    resolveClarification: db.prepare(`
+      UPDATE clarifications
+      SET status = @status, answered_at = @answered_at, answer_text = @answer_text
+      WHERE id = @id AND status = 'open'
+    `),
   };
+
+  function rowToClarification(row: any): ClarificationRequest {
+    return {
+      id: row.id,
+      created_at: row.created_at,
+      status: row.status,
+      source_kind: row.source_kind,
+      ingestion_id: row.ingestion_id ?? null,
+      sender: row.sender,
+      thread_id: row.thread_id,
+      question: row.question,
+      options: JSON.parse(row.options_json),
+      context: JSON.parse(row.context_json),
+      answered_at: row.answered_at ?? null,
+      answer_text: row.answer_text ?? null,
+    };
+  }
 
   function rowToRecord(row: any): IngestRecord {
     return {
@@ -296,6 +351,47 @@ export function openDB(dbPath: string): PebbleDB {
     },
     incrementBudget({ day, model, calls, tokens }) {
       stmts.incrementBudget.run({ day, model, calls, tokens });
+    },
+    insertClarification(rec) {
+      stmts.insertClarification.run({
+        id: rec.id,
+        created_at: rec.created_at,
+        status: rec.status,
+        source_kind: rec.source_kind,
+        ingestion_id: rec.ingestion_id,
+        sender: rec.sender,
+        thread_id: rec.thread_id,
+        question: rec.question,
+        options_json: JSON.stringify(rec.options ?? []),
+        context_json: JSON.stringify(rec.context ?? {}),
+        answered_at: rec.answered_at,
+        answer_text: rec.answer_text,
+      });
+    },
+    getClarification(id) {
+      const row = stmts.getClarification.get(id) as any;
+      return row ? rowToClarification(row) : null;
+    },
+    listClarifications(args) {
+      const limit = args?.limit ?? 50;
+      const rows =
+        args?.status !== undefined
+          ? (stmts.listClarificationsByStatus.all(args.status, limit) as any[])
+          : (stmts.listClarificationsAll.all(limit) as any[]);
+      return rows.map(rowToClarification);
+    },
+    findOpenClarificationByThread(thread_id) {
+      const row = stmts.findOpenByThread.get(thread_id) as any;
+      return row ? rowToClarification(row) : null;
+    },
+    resolveClarification({ id, answer_text, answered_at, status }) {
+      const info = stmts.resolveClarification.run({
+        id,
+        answer_text,
+        answered_at: answered_at ?? new Date().toISOString(),
+        status: status ?? "answered",
+      });
+      return info.changes > 0;
     },
     schemaVersion() {
       return getDbVersion(db);
