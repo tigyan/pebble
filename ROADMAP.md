@@ -39,10 +39,15 @@ can't file confidently. See "Product vision" in `ARCHITECTURE.md`.
       audits via `agent-actions.jsonl`. Producers (triage / `/do` / filing)
       to be wired in as concrete cases land — `context.kind` is the soft
       discriminator they use.
-- [ ] **Outbound send via Pebble Bridge.** Wire `POST /api/v1/messages/send`
-      so the Librarian can answer in the *same iMessage thread* that
-      produced the item. Reuses Bridge auth + rate limiting; behind a
-      settings flag (off by default).
+- [x] **Outbound send via Pebble Bridge.** `sendBridgeMessage` in
+      `src/bridge/send.ts` wraps `POST /api/v1/messages/send` (bearer
+      auth, error-code propagation, configurable timeout / fetch).
+      `notifyClarification` in `src/agent/notify.ts` is the best-effort
+      sender used by future producers: gated on a settings flag
+      (`outbound_send.enabled`, default off) plus `PEBBLE_BRIDGE_URL`
+      config and `PEBBLE_BRIDGE_TOKEN` secret, idempotent via
+      `clarifications.notified_at` (migration v2). Bridge errors are
+      audited but never propagate up into the ingest pipeline.
 - [x] **Reply routing.** `tryResolveClarification` runs in `/ingest`
       between `/do` parsing and the normal pipeline: when an inbound
       message arrives on a thread with an open clarification, it is

@@ -47,6 +47,21 @@ export const MIGRATIONS: Migration[] = [
       `);
     },
   },
+  {
+    version: 2,
+    name: "clarifications_add_notified_at",
+    up(db) {
+      // why: outbound notify (Pebble Bridge) needs to be idempotent so a
+      // retry doesn't spam the same iMessage thread. We record when (if
+      // ever) a question was actually sent.
+      const cols = (db.pragma("table_info(clarifications)") as Array<{ name: string }>).map(
+        (r) => r.name,
+      );
+      if (!cols.includes("notified_at")) {
+        db.exec(`ALTER TABLE clarifications ADD COLUMN notified_at TEXT`);
+      }
+    },
+  },
 ];
 
 export function currentSchemaVersion(): number {

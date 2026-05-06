@@ -157,6 +157,8 @@ export const ClarificationRequestSchema = z.object({
   context: z.record(z.string(), z.unknown()).default({}),
   answered_at: z.string().datetime().nullable().default(null),
   answer_text: z.string().nullable().default(null),
+  /** When (if ever) the question was actually sent over the outbound channel. */
+  notified_at: z.string().datetime().nullable().default(null),
 });
 export type ClarificationRequest = z.infer<typeof ClarificationRequestSchema>;
 

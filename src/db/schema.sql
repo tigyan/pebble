@@ -107,7 +107,8 @@ CREATE TABLE IF NOT EXISTS clarifications (
     options_json TEXT NOT NULL DEFAULT '[]',
     context_json TEXT NOT NULL DEFAULT '{}',
     answered_at  TEXT,
-    answer_text  TEXT
+    answer_text  TEXT,
+    notified_at  TEXT                       -- when the question was sent via Bridge (idempotency)
 );
 
 CREATE INDEX IF NOT EXISTS ix_clarifications_thread_status ON clarifications(thread_id, status);

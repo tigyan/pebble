@@ -58,6 +58,19 @@ export const IngestFilterSettingsSchema = z
 export type IngestFilterSettings = z.infer<typeof IngestFilterSettingsSchema>;
 export const DEFAULT_INGEST_FILTER: IngestFilterSettings = IngestFilterSettingsSchema.parse({});
 
+export const OutboundSendSettingsSchema = z
+  .object({
+    /**
+     * Master switch for the Librarian sending iMessages back via Pebble
+     * Bridge. Default off — toggling on still requires `bridgeUrl` in
+     * config and a `PEBBLE_BRIDGE_TOKEN` secret to actually fire.
+     */
+    enabled: z.boolean().default(false),
+  })
+  .strict();
+export type OutboundSendSettings = z.infer<typeof OutboundSendSettingsSchema>;
+export const DEFAULT_OUTBOUND_SEND: OutboundSendSettings = OutboundSendSettingsSchema.parse({});
+
 export const EditableSettingsSchema = z
   .object({
     triage_provider: TriageProviderNameSchema.optional(),
@@ -65,6 +78,7 @@ export const EditableSettingsSchema = z
     worker: WorkerSettingsSchema.partial().optional(),
     agent: AgentSettingsSchema.partial().optional(),
     ingest_filter: IngestFilterSettingsSchema.partial().optional(),
+    outbound_send: OutboundSendSettingsSchema.partial().optional(),
   })
   .strict();
 export type EditableSettings = z.infer<typeof EditableSettingsSchema>;
@@ -128,7 +142,18 @@ function mergeSettings(base: EditableSettings, patch: EditableSettings): Editabl
   if (patch.ingest_filter !== undefined) {
     out.ingest_filter = { ...(base.ingest_filter ?? {}), ...patch.ingest_filter };
   }
+  if (patch.outbound_send !== undefined) {
+    out.outbound_send = { ...(base.outbound_send ?? {}), ...patch.outbound_send };
+  }
   return EditableSettingsSchema.parse(out);
+}
+
+/** Outbound-send config with defaults filled in. */
+export function effectiveOutboundSend(s: EditableSettings): OutboundSendSettings {
+  const out: OutboundSendSettings = { ...DEFAULT_OUTBOUND_SEND };
+  const patch = s.outbound_send ?? {};
+  if (patch.enabled !== undefined) out.enabled = patch.enabled;
+  return out;
 }
 
 /** Worker config with all defaults filled in. Convenience for callers. */

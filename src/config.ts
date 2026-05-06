@@ -35,6 +35,13 @@ const ConfigSchema = z.object({
    * the parsed config object (and thus never gets logged).
    */
   bluebubblesUrl: z.string().url().or(z.literal("")).default(""),
+  /**
+   * Pebble Bridge loopback URL (e.g. `http://127.0.0.1:8989`). When set
+   * together with a Bridge token (resolved separately via SecretSource as
+   * `PEBBLE_BRIDGE_TOKEN`) and the `outbound_send_enabled` settings flag,
+   * the Librarian can send clarification questions back to iMessage.
+   */
+  bridgeUrl: z.string().url().or(z.literal("")).default(""),
 });
 
 export type PebbleConfig = z.infer<typeof ConfigSchema>;
@@ -63,5 +70,6 @@ export function loadConfig(
     telemetry: env.PEBBLE_TELEMETRY ?? "off",
     secretsSource: (env.PEBBLE_SECRETS_SOURCE ?? "env").toLowerCase(),
     bluebubblesUrl: env.PEBBLE_BLUEBUBBLES_URL ?? "",
+    bridgeUrl: env.PEBBLE_BRIDGE_URL ?? "",
   });
 }

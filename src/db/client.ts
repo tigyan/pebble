@@ -68,6 +68,8 @@ export interface PebbleDB {
     answered_at?: string;
     status?: Extract<ClarificationStatus, "answered" | "cancelled">;
   }): boolean;
+  /** Stamp `notified_at` once the outbound send succeeded. Idempotent — does nothing if already set. */
+  markClarificationNotified(args: { id: string; notified_at?: string }): boolean;
   schemaVersion(): number;
   close(): void;
 }
@@ -156,10 +158,14 @@ export function openDB(dbPath: string): PebbleDB {
     insertClarification: db.prepare(`
       INSERT INTO clarifications
         (id, created_at, status, source_kind, ingestion_id, sender, thread_id,
-         question, options_json, context_json, answered_at, answer_text)
+         question, options_json, context_json, answered_at, answer_text, notified_at)
       VALUES
         (@id, @created_at, @status, @source_kind, @ingestion_id, @sender, @thread_id,
-         @question, @options_json, @context_json, @answered_at, @answer_text)
+         @question, @options_json, @context_json, @answered_at, @answer_text, @notified_at)
+    `),
+    markNotified: db.prepare(`
+      UPDATE clarifications SET notified_at = @notified_at
+      WHERE id = @id AND notified_at IS NULL
     `),
     getClarification: db.prepare(`SELECT * FROM clarifications WHERE id = ?`),
     listClarificationsByStatus: db.prepare(`
@@ -194,6 +200,7 @@ export function openDB(dbPath: string): PebbleDB {
       context: JSON.parse(row.context_json),
       answered_at: row.answered_at ?? null,
       answer_text: row.answer_text ?? null,
+      notified_at: row.notified_at ?? null,
     };
   }
 
@@ -366,7 +373,15 @@ export function openDB(dbPath: string): PebbleDB {
         context_json: JSON.stringify(rec.context ?? {}),
         answered_at: rec.answered_at,
         answer_text: rec.answer_text,
+        notified_at: rec.notified_at,
       });
+    },
+    markClarificationNotified({ id, notified_at }) {
+      const info = stmts.markNotified.run({
+        id,
+        notified_at: notified_at ?? new Date().toISOString(),
+      });
+      return info.changes > 0;
     },
     getClarification(id) {
       const row = stmts.getClarification.get(id) as any;
